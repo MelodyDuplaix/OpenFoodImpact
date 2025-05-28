@@ -175,3 +175,5 @@ cython_debug/
 
 data/*
 notebooks/*
+mongodb_data/*
+pgvector_data/*

@@ -1,6 +1,8 @@
 pandas
+bs4
 numpy
 pyarrow
 fastparquet
 requests
+pymongo
 bs4

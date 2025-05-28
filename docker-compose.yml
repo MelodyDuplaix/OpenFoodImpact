@@ -1,0 +1,18 @@
+services:
+  pgvector:
+    image: pgvector/pgvector:pg17
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ./pgvector_data:/var/lib/postgresql/data
+
+  mongodb:
+    image:! mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./mongodb_data:/data/db

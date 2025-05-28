@@ -33,6 +33,7 @@ Readme/
 * Python 3.x
 * `pip`
 * Un environnement virtuel (recommandé)
+* [Docker](https://www.docker.com/) et [Docker Compose](https://docs.docker.com/compose/) pour la gestion des bases de données (PostgreSQL/pgvector et MongoDB)
 
 ### Installation
 
@@ -53,6 +54,12 @@ venv\Scripts\activate
 ```bash
 pip install -r requirements.txt
 ```
+
+4. Lancer les bases de données avec Docker Compose
+```bash
+docker compose up -d
+```
+Cela démarre les services PostgreSQL/pgvector et MongoDB avec persistance des données dans les dossiers `pgvector_data/` et `mongodb_data/` du projet (ces dossiers sont à ignorer dans git).
 
 ### Workflow du projet
 
