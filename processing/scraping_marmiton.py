@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import requests
 import json
 import time
+import pymongo
 from urllib.parse import urljoin
 
 recipes_types = ["entree", "plat-principal", "dessert", "boissons"]
@@ -71,9 +72,30 @@ def extract_schemaorg_recipe(url):
             continue
     return None
 
+def insert_recipes(recipes):
+    """Inserts recipes into MongoDB."""
+    client = pymongo.MongoClient("mongodb://localhost:27017/")
+    db = client["OpenFoodImpact"]
+    collection = db["recipes"]
+    try:
+        collection.insert_many(recipes)
+        print("Recipes inserted successfully!")
+    except Exception as e:
+        print(f"Error inserting recipes: {e}")
+    finally:
+        client.close()
+
+def remove_objectid(data):
+    if isinstance(data, dict):
+        return {k: remove_objectid(v) for k, v in data.items() if k != "_id"}
+    elif isinstance(data, list):
+        return [remove_objectid(item) for item in data]
+    else:
+        return data
+
 def extract_all_recipes():
     """
-    Extracts all recipes from Marmiton website.
+    Extracts all recipes from Marmiton website and inserts them into MongoDB.
 
     Returns:
         list: A list of dictionaries containing recipe titles, links, and details.
@@ -84,12 +106,14 @@ def extract_all_recipes():
     for recipe in recipes:
         recipe_data = extract_schemaorg_recipe(recipe["link"])
         if recipe_data:
-            recipe["details"] = recipe_data
+            recipe.update(remove_objectid(recipe_data))
         else:
             print(f"Failed to extract recipe data for {recipe['title']}")
     end_time = time.time()
     total_time = end_time - start_time
     print(f"Total time to extract all recipes: {total_time:.2f} seconds")
+    recipes = remove_objectid(recipes)
+    insert_recipes(recipes)
     return recipes
 
 if __name__ == "__main__":
@@ -97,6 +121,7 @@ if __name__ == "__main__":
     recipes = extract_all_recipes()
     print(f"scraped {len(recipes)} recipes")   
     print("saving recipes to marmiton_recipes.json")
+    recipes = remove_objectid(recipes)  # Remove MongoDB ObjectId fields
     with open("data/marmiton_recipes.json", "w", encoding="utf-8") as f:
         json.dump(recipes, f, ensure_ascii=False, indent=4)
     print("recipes saved successfully")
