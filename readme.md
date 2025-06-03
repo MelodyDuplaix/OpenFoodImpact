@@ -83,3 +83,50 @@ Ce projet est sous licence MIT - voir le fichier LICENSE pour plus de détails.
 Pour toute question ou problème:
 1. Vérifiez la section de dépannage
 2. Ouvrez un problème dans le référentiel
+
+```SQL
+-- Table centrale pour la vectorisation des noms
+CREATE TABLE product_vector (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_vector VECTOR(384), -- ou VECTOR(768) selon le modèle utilisé
+    source VARCHAR(32) NOT NULL, -- 'greenpeace', 'agribalyse', 'openfoodfacts'
+    source_id TEXT, -- identifiant unique dans la source d'origine
+    extra JSONB -- métadonnées additionnelles (optionnel)
+);
+
+CREATE TABLE agribalyse (
+    id SERIAL PRIMARY KEY,
+    product_vector_id INTEGER REFERENCES product_vector(id),
+    code_agb TEXT,
+    code_ciqual TEXT,
+    groupe_aliment TEXT,
+    sous_groupe_aliment TEXT,
+    lci_name TEXT,
+    score_unique_ef FLOAT,
+    changement_climatique FLOAT,
+    -- ... autres colonnes d'impact environnemental ...
+    data JSONB -- pour stocker les autres champs bruts si besoin
+);
+
+CREATE TABLE openfoodfacts (
+    id SERIAL PRIMARY KEY,
+    product_vector_id INTEGER REFERENCES product_vector(id),
+    code TEXT,
+    product_name TEXT,
+    brands TEXT,
+    categories TEXT,
+    nutriscore_score FLOAT,
+    nutriscore_grade TEXT,
+    nova_group INTEGER,
+    -- ... autres colonnes nutritionnelles ...
+    data JSONB -- pour stocker les autres champs bruts si besoin
+);
+
+CREATE TABLE greenpeace_season (
+    id SERIAL PRIMARY KEY,
+    product_vector_id INTEGER REFERENCES product_vector(id),
+    month VARCHAR(16),
+    is_seasonal BOOLEAN
+);
+```

@@ -11,7 +11,7 @@ services:
       - ./pgvector_data:/var/lib/postgresql/data
 
   mongodb:
-    image:! mongo:latest
+    image: mongo:latest
     ports:
       - "27017:27017"
     volumes:

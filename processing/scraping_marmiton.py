@@ -6,6 +6,9 @@ import json
 import time
 import pymongo
 from urllib.parse import urljoin
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 recipes_types = ["entree", "plat-principal", "dessert", "boissons"]
 base_url = "https://www.marmiton.org/recettes/index/categorie/"
@@ -74,7 +77,8 @@ def extract_schemaorg_recipe(url):
 
 def insert_recipes(recipes):
     """Inserts recipes into MongoDB."""
-    client = pymongo.MongoClient("mongodb://localhost:27017/")
+    
+    client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"))
     db = client["OpenFoodImpact"]
     collection = db["recipes"]
     try:
