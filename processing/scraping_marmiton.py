@@ -16,10 +16,10 @@ base_url = "https://www.marmiton.org/recettes/index/categorie/"
 
 def scrapes_recipe_list():
     """
-    Scrapes the recipe list from Marmiton website.
+    Scrape la liste des recettes depuis Marmiton.
 
     Returns:
-        list: A list of dictionaries containing recipe titles and links.
+        list: Liste de dictionnaires avec titres et liens.
     """
     recipes = []
     for recipe_type in recipes_types:
@@ -53,13 +53,12 @@ def scrapes_recipe_list():
 
 def extract_schemaorg_recipe(url):
     """
-    Extracts the recipe data from a given URL using schema.org JSON-LD format.
+    Extrait les données recette d'une URL Marmiton via schema.org JSON-LD.
 
     Args:
-        url (str): The URL of the recipe page.
-
+        url (str): URL de la page recette.
     Returns:
-        dict: A dictionary containing the recipe data if found, otherwise None.
+        dict: Dictionnaire recette ou None si échec.
     """
     try:
         response = requests.get(url, timeout=10)
@@ -81,7 +80,14 @@ def extract_schemaorg_recipe(url):
     return None
 
 def insert_recipes(recipes):
-    """Inserts recipes into MongoDB."""
+    """
+    Insère les recettes dans MongoDB.
+
+    Args:
+        recipes (list): Liste de recettes à insérer
+    Returns:
+        None
+    """
     try:
         client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
         db = client["OpenFoodImpact"]
@@ -100,6 +106,14 @@ def insert_recipes(recipes):
             pass
 
 def remove_objectid(data):
+    """
+    Retire les champs _id des objets MongoDB (pour export propre).
+
+    Args:
+        data (dict/list): Données à nettoyer
+    Returns:
+        dict/list: Données sans _id
+    """
     if isinstance(data, dict):
         return {k: remove_objectid(v) for k, v in data.items() if k != "_id"}
     elif isinstance(data, list):
@@ -109,21 +123,24 @@ def remove_objectid(data):
 
 def extract_all_recipes():
     """
-    Extracts all recipes from Marmiton website and inserts them into MongoDB.
+    Extrait toutes les recettes Marmiton et les insère dans MongoDB.
 
     Returns:
-        list: A list of dictionaries containing recipe titles, links, and details.
+        list: Liste de recettes (titres, liens, détails)
     """
     start_time = time.time()
     try:
         recipes = scrapes_recipe_list()
         logging.info(f"Found {len(recipes)} recipes, now extracting details")
         for recipe in recipes:
-            recipe_data = extract_schemaorg_recipe(recipe["link"])
-            if recipe_data:
-                recipe.update(remove_objectid(recipe_data))
-            else:
-                logging.warning(f"Failed to extract recipe data for {recipe['title']}")
+            try:
+                recipe_data = extract_schemaorg_recipe(recipe["link"])
+                if recipe_data:
+                    recipe.update(remove_objectid(recipe_data))
+                else:
+                    logging.warning(f"Failed to extract recipe data for {recipe['title']}")
+            except Exception as e:
+                logging.warning(f"Erreur extraction détails recette : {e}")
         recipes = remove_objectid(recipes)
         insert_recipes(recipes)
         total_time = time.time() - start_time

@@ -7,6 +7,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processing.utils import get_db_connection, safe_execute
 
 def extract_openfoodfacts_chunks():
+    """
+    Extrait des chunks de données du dataset OpenFoodFacts.
+
+    Args:
+        Aucun
+    Returns:
+        Generator de DataFrame pandas (par chunk)
+    """
     url = "data/fr.openfoodfacts.org.products.csv"
     colonnes_utiles = [
         "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "countries_tags", "image_url",
@@ -22,13 +30,26 @@ def extract_openfoodfacts_chunks():
         "vitamin-b12_100g": "vitamin_b12_100g",
         "vitamin-d_100g": "vitamin_d_100g",
     }
-    for chunk in pd.read_csv(url, nrows=2000000,sep="\t", encoding="utf-8", dtype={'code': str}, low_memory=False, on_bad_lines='skip', usecols=colonnes_utiles, chunksize=1000):
-        chunk = chunk.rename(columns=rename_map)
-        yield chunk
+    try:
+        for chunk in pd.read_csv(url, nrows=2000000, sep="\t", encoding="utf-8", dtype={'code': str}, low_memory=False, on_bad_lines='skip', usecols=colonnes_utiles, chunksize=1000):
+            chunk = chunk.rename(columns=rename_map)
+            yield chunk
+    except Exception as e:
+        logging.error(f"Erreur lors de l'extraction des chunks OpenFoodFacts : {e}")
+        return
 
 def load_openfoodfacts_chunk_to_db(chunk):
+    """
+    Insère un chunk de données OpenFoodFacts dans la base PostgreSQL, avec nettoyage et gestion d'erreurs.
+
+    Args:
+        chunk (pd.DataFrame): Chunk de données à insérer
+    Returns:
+        None
+    """
     conn = get_db_connection()
     if conn is None:
+        logging.error("Connexion à la base impossible.")
         return
     cur = conn.cursor()
     openfoodfacts_cols = [
@@ -45,58 +66,78 @@ def load_openfoodfacts_chunk_to_db(chunk):
     ]
     insert_rows = []
     for _, row in chunk.iterrows():
-        if not isinstance(row.get('countries_tags'), str) or 'en:france' not in row['countries_tags']:
-            continue
-        name = row.get('product_name')
-        code = row.get('code')
-        if not isinstance(name, str) or not name.strip() or not code:
-            continue
-        # Insert into product_vector (toujours ligne à ligne pour récupérer l'id)
-        safe_execute(cur, """
-            INSERT INTO product_vector (name, source, code_source)
-            VALUES (%s, %s, %s)
-            ON CONFLICT DO NOTHING
-            RETURNING id;
-        """, (name.strip(), 'openfoodfacts', code))
-        result = cur.fetchone()
-        if result:
-            product_vector_id = result[0]
-        else:
-            safe_execute(cur, "SELECT id FROM product_vector WHERE name = %s AND source = %s;", (name.strip(), 'openfoodfacts'))
-            fetch = cur.fetchone()
-            if not fetch:
+        try:
+            if not isinstance(row.get('countries_tags'), str) or 'en:france' not in row['countries_tags']:
                 continue
-            product_vector_id = fetch[0]
-        # Nettoyage des valeurs
-        values = []
-        for col in openfoodfacts_cols:
-            val = row.get(col, None)
-            if pd.isna(val):
-                val = None
-            if col in numeric_cols and val is not None:
-                try:
-                    val = float(val)
-                except Exception:
+            name = row.get('product_name')
+            code = row.get('code')
+            if not isinstance(name, str) or not name.strip() or not code:
+                continue
+            try:
+                safe_execute(cur, """
+                    INSERT INTO product_vector (name, source, code_source)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    RETURNING id;
+                """, (name.strip(), 'openfoodfacts', code))
+                result = cur.fetchone()
+                if result:
+                    product_vector_id = result[0]
+                else:
+                    safe_execute(cur, "SELECT id FROM product_vector WHERE name = %s AND source = %s;", (name.strip(), 'openfoodfacts'))
+                    fetch = cur.fetchone()
+                    if not fetch:
+                        continue
+                    product_vector_id = fetch[0]
+            except Exception as e:
+                logging.warning(f"Erreur insertion product_vector: {e}")
+                continue
+            values = []
+            for col in openfoodfacts_cols:
+                val = row.get(col, None)
+                if pd.isna(val):
                     val = None
-            values.append(val)
-        insert_rows.append([product_vector_id] + values)
+                if col in numeric_cols and val is not None:
+                    try:
+                        val = float(val)
+                    except Exception:
+                        val = None
+                values.append(val)
+            insert_rows.append([product_vector_id] + values)
+        except Exception as e:
+            logging.warning(f"Erreur lors du traitement d'une ligne OpenFoodFacts: {e}")
+            continue
     if insert_rows:
-        sql = f"""
-            INSERT INTO openfoodfacts (
-                product_vector_id, {', '.join(openfoodfacts_cols)}
-            ) VALUES (
-                {', '.join(['%s'] * (1 + len(openfoodfacts_cols)))}
-            ) ON CONFLICT DO NOTHING;
-        """
-        cur.executemany(sql, insert_rows)
+        try:
+            sql = f"""
+                INSERT INTO openfoodfacts (
+                    product_vector_id, {', '.join(openfoodfacts_cols)}
+                ) VALUES (
+                    {', '.join(['%s'] * (1 + len(openfoodfacts_cols)))}
+                ) ON CONFLICT DO NOTHING;
+            """
+            cur.executemany(sql, insert_rows)
+        except Exception as e:
+            logging.error(f"Erreur lors de l'insertion batch OpenFoodFacts: {e}")
     conn.commit()
     cur.close()
     conn.close()
 
 def etl_openfoodfacts():
+    """
+    Pipeline ETL complet pour OpenFoodFacts (extraction, transformation, chargement).
+
+    Args:
+        Aucun
+    Returns:
+        None
+    """
     chunk_count = 0
     for chunk in extract_openfoodfacts_chunks():
-        load_openfoodfacts_chunk_to_db(chunk)
+        try:
+            load_openfoodfacts_chunk_to_db(chunk)
+        except Exception as e:
+            logging.error(f"Erreur lors du traitement d'un chunk OpenFoodFacts: {e}")
         chunk_count += 1
         if chunk_count % 1000 == 0:
             logging.info(f"Progression : {chunk_count} chunks traités")
