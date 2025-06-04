@@ -2,38 +2,51 @@ import os
 from .utils import get_db_connection, safe_execute
 
 def init_db():
+    """Initialise les tables et index nécessaires dans la base PostgreSQL.
+
+    Returns:
+        None
+    """
     conn = get_db_connection()
     cur = conn.cursor()
     safe_execute(cur, "CREATE EXTENSION IF NOT EXISTS vector;")
     safe_execute(cur, "CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+    # Table centrale
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS product_vector (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         name_vector VECTOR(384),
         source VARCHAR(32) NOT NULL,
+        code_source TEXT,
         UNIQUE (name, source)
     );''')
+    # Index pour recherche rapide
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_name ON product_vector (name);")
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_source ON product_vector (source);")
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_code_source ON product_vector (code_source);")
+    # Table agribalyse (tous les indicateurs en colonnes)
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS agribalyse (
         id SERIAL PRIMARY KEY,
         product_vector_id INTEGER REFERENCES product_vector(id),
-        ecotoxicite_eau_douce FLOAT,
         code_agb TEXT,
+        code_ciqual TEXT,
+        lci_name TEXT,
+        nom_produit_francais TEXT,
+        changement_climatique FLOAT,
+        score_unique_ef FLOAT,
+        ecotoxicite_eau_douce FLOAT,
         epuisement_ressources_energetiques FLOAT,
         eutrophisation_marine FLOAT,
         sous_groupe_aliment TEXT,
         effets_tox_cancerogenes FLOAT,
         approche_emballage TEXT,
-        code_ciqual TEXT,
-        lci_name TEXT,
-        nom_produit_francais TEXT,
         epuisement_ressources_eau FLOAT,
         eutrophisation_terrestre FLOAT,
         utilisation_sol FLOAT,
         code_avion TEXT,
         effets_tox_non_cancerogenes FLOAT,
-        changement_climatique FLOAT,
         epuisement_ressources_mineraux FLOAT,
         particules_fines FLOAT,
         formation_photochimique_ozone FLOAT,
@@ -43,13 +56,15 @@ def init_db():
         acidification_terrestre_eaux_douces FLOAT,
         groupe_aliment TEXT,
         changement_climatique_cas FLOAT,
-        score_unique_ef FLOAT,
         appauvrissement_couche_ozone FLOAT,
         rayonnements_ionisants FLOAT,
         eutrophisation_eaux_douces FLOAT,
         changement_climatique_fossile FLOAT,
         score FLOAT
     );''')
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_code_agb ON agribalyse (code_agb);")
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_code_ciqual ON agribalyse (code_ciqual);")
+    # Table openfoodfacts unique avec tous les champs utiles
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS openfoodfacts (
         id SERIAL PRIMARY KEY,
@@ -62,7 +77,6 @@ def init_db():
         labels_tags TEXT,
         origins_tags TEXT,
         packaging_tags TEXT,
-        countries_tags TEXT,
         image_url TEXT,
         energy_kcal_100g FLOAT,
         fat_100g FLOAT,
@@ -88,14 +102,16 @@ def init_db():
         additives_tags TEXT,
         allergens TEXT,
         serving_size TEXT,
-        serving_quantity FLOAT
+        serving_quantity TEXT
     );''')
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_code ON openfoodfacts (code);")
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_product_name ON openfoodfacts (product_name);")
+    # Table greenpeace
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS greenpeace_season (
         id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
         product_vector_id INTEGER REFERENCES product_vector(id),
-        month VARCHAR(16)
+        month TEXT
     );''')
     conn.commit()
     cur.close()

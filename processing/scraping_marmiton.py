@@ -8,6 +8,7 @@ import pymongo
 from urllib.parse import urljoin
 from dotenv import load_dotenv
 import os
+import logging
 load_dotenv()
 
 recipes_types = ["entree", "plat-principal", "dessert", "boissons"]
@@ -22,7 +23,7 @@ def scrapes_recipe_list():
     """
     recipes = []
     for recipe_type in recipes_types:
-        print(f"scraping {recipe_type} recipes")
+        logging.info(f"Scraping {recipe_type} recipes")
         page = 1
         while True:
             url = f"{base_url}{recipe_type}/" if page == 1 else f"{base_url}{recipe_type}/{page}"
@@ -30,7 +31,7 @@ def scrapes_recipe_list():
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
             except Exception as e:
-                print(f"Request failed for {url}: {e}")
+                logging.warning(f"Request failed for {url}: {e}")
                 break
             soup = BeautifulSoup(response.content, "html.parser")
             recipe_cards = soup.select(".type-Recipe")
@@ -60,34 +61,43 @@ def extract_schemaorg_recipe(url):
     Returns:
         dict: A dictionary containing the recipe data if found, otherwise None.
     """
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, "html.parser")
-    for script in soup.find_all("script", type="application/ld+json"):
-        try:
-            data = json.loads(script.string) # type: ignore
-            if isinstance(data, list):
-                for entry in data:
-                    if entry.get("@type") == "Recipe":
-                        return entry
-            elif isinstance(data, dict) and data.get("@type") == "Recipe":
-                return data
-        except Exception:
-            continue
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, "html.parser")
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(script.string) # type: ignore
+                if isinstance(data, list):
+                    for entry in data:
+                        if entry.get("@type") == "Recipe":
+                            return entry
+                elif isinstance(data, dict) and data.get("@type") == "Recipe":
+                    return data
+            except Exception:
+                continue
+    except Exception as e:
+        logging.warning(f"Failed to extract schema.org recipe from {url}: {e}")
     return None
 
 def insert_recipes(recipes):
     """Inserts recipes into MongoDB."""
-    
-    client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"))
-    db = client["OpenFoodImpact"]
-    collection = db["recipes"]
     try:
-        collection.insert_many(recipes)
-        print("Recipes inserted successfully!")
+        client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
+        db = client["OpenFoodImpact"]
+        collection = db["recipes"]
+        if recipes:
+            collection.insert_many(recipes, ordered=False)
+            logging.info(f"{len(recipes)} recipes inserted successfully into MongoDB!")
+        else:
+            logging.warning("No recipes to insert into MongoDB.")
     except Exception as e:
-        print(f"Error inserting recipes: {e}")
+        logging.error(f"Error inserting recipes into MongoDB: {e}")
     finally:
-        client.close()
+        try:
+            client.close()
+        except Exception:
+            pass
 
 def remove_objectid(data):
     if isinstance(data, dict):
@@ -105,29 +115,26 @@ def extract_all_recipes():
         list: A list of dictionaries containing recipe titles, links, and details.
     """
     start_time = time.time()
-    recipes = scrapes_recipe_list()
-    print(f"found {len(recipes)} recipes, now extracting details")
-    for recipe in recipes:
-        recipe_data = extract_schemaorg_recipe(recipe["link"])
-        if recipe_data:
-            recipe.update(remove_objectid(recipe_data))
-        else:
-            print(f"Failed to extract recipe data for {recipe['title']}")
-    end_time = time.time()
-    total_time = end_time - start_time
-    print(f"Total time to extract all recipes: {total_time:.2f} seconds")
-    recipes = remove_objectid(recipes)
-    insert_recipes(recipes)
-    return recipes
+    try:
+        recipes = scrapes_recipe_list()
+        logging.info(f"Found {len(recipes)} recipes, now extracting details")
+        for recipe in recipes:
+            recipe_data = extract_schemaorg_recipe(recipe["link"])
+            if recipe_data:
+                recipe.update(remove_objectid(recipe_data))
+            else:
+                logging.warning(f"Failed to extract recipe data for {recipe['title']}")
+        recipes = remove_objectid(recipes)
+        insert_recipes(recipes)
+        total_time = time.time() - start_time
+        logging.info(f"Total time to extract all recipes: {total_time:.2f} seconds")
+        return recipes
+    except Exception as e:
+        logging.error(f"Error in extract_all_recipes: {e}")
+        return []
 
 if __name__ == "__main__":
-    print("scraping marmiton recipes, this may take a while...")
+    logging.basicConfig(level=logging.INFO)
+    logging.info("Scraping Marmiton recipes, this may take a while...")
     recipes = extract_all_recipes()
-    print(f"scraped {len(recipes)} recipes")   
-    print("saving recipes to marmiton_recipes.json")
-    recipes = remove_objectid(recipes)  # Remove MongoDB ObjectId fields
-    with open("data/marmiton_recipes.json", "w", encoding="utf-8") as f:
-        json.dump(recipes, f, ensure_ascii=False, indent=4)
-    print("recipes saved successfully")
-    print("exemplary recipe:")
-    print(recipes[0])
+    logging.info(f"Scraped {len(recipes)} recipes")

@@ -56,6 +56,7 @@ def insert_season_data_to_db(season_data):
         for name in items:
             name_normalized = normalize_name(name)
             name_vector = vectorize_name(name_normalized)
+            # Insert into product_vector
             safe_execute(cur, """
                 INSERT INTO product_vector (name, name_vector, source)
                 VALUES (%s, %s, %s)
@@ -71,11 +72,12 @@ def insert_season_data_to_db(season_data):
                 if not fetch:
                     continue
                 product_vector_id = fetch[0]
+            # Insert into greenpeace_season
             safe_execute(cur, """
-                INSERT INTO greenpeace_season (name, product_vector_id, month)
-                VALUES (%s, %s, %s)
+                INSERT INTO greenpeace_season (product_vector_id, month)
+                VALUES (%s, %s)
                 ON CONFLICT DO NOTHING;
-            """, (name, product_vector_id, month))
+            """, (product_vector_id, month))
     conn.commit()
     cur.close()
     conn.close()
