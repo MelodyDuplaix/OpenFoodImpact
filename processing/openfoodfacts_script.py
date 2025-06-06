@@ -1,10 +1,18 @@
 import os
 import sys
-import psycopg2
 import logging
 import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processing.utils import get_db_connection, safe_execute
+
+openfoodfacts_url = "https://fr.openfoodfacts.org/data/fr.openfoodfacts.org.products.csv"
+openfoodfact_columns = [        
+        "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "image_url",
+        "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
+        "vitamin_c_100g", "vitamin_b12_100g", "vitamin_d_100g", "iron_100g", "calcium_100g",
+        "nutriscore_score", " nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
+        "ingredients_text", "ingredients_analysis_tags", "additives_tags", "allergens", "serving_size", "serving_quantity"
+]
 
 def extract_openfoodfacts_chunks():
     """
@@ -13,16 +21,8 @@ def extract_openfoodfacts_chunks():
     Args:
         Aucun
     Returns:
-        Generator de DataFrame pandas (par chunk)
+        generator: Générateur de DataFrame pandas (par chunk)
     """
-    url = "data/fr.openfoodfacts.org.products.csv"
-    colonnes_utiles = [
-        "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "countries_tags", "image_url",
-        "energy-kcal_100g", "fat_100g", "saturated-fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
-        "vitamin-c_100g", "vitamin-b12_100g", "vitamin-d_100g", "iron_100g", "calcium_100g",
-        "nutriscore_score", "nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
-        "ingredients_text", "ingredients_analysis_tags", "additives_tags", "allergens", "serving_size", "serving_quantity"
-    ]
     rename_map = {
         "energy-kcal_100g": "energy_kcal_100g",
         "saturated-fat_100g": "saturated_fat_100g",
@@ -31,7 +31,8 @@ def extract_openfoodfacts_chunks():
         "vitamin-d_100g": "vitamin_d_100g",
     }
     try:
-        for chunk in pd.read_csv(url, nrows=2000000, sep="\t", encoding="utf-8", dtype={'code': str}, low_memory=False, on_bad_lines='skip', usecols=colonnes_utiles, chunksize=1000):
+        for chunk in pd.read_csv(openfoodfacts_url, nrows=2000000, sep="\t", encoding="utf-8", dtype={'code': str}, 
+                                 low_memory=False, on_bad_lines='skip', usecols=openfoodfact_columns, chunksize=1000):
             chunk = chunk.rename(columns=rename_map)
             yield chunk
     except Exception as e:
@@ -52,13 +53,6 @@ def load_openfoodfacts_chunk_to_db(chunk):
         logging.error("Connexion à la base impossible.")
         return
     cur = conn.cursor()
-    openfoodfacts_cols = [
-        "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "image_url",
-        "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
-        "vitamin_c_100g", "vitamin_b12_100g", "vitamin_d_100g", "iron_100g", "calcium_100g",
-        "nutriscore_score", "nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
-        "ingredients_text", "ingredients_analysis_tags", "additives_tags", "allergens", "serving_size", "serving_quantity"
-    ]
     numeric_cols = [
         "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
         "vitamin_c_100g", "vitamin_b12_100g", "vitamin_d_100g", "iron_100g", "calcium_100g",
@@ -93,7 +87,7 @@ def load_openfoodfacts_chunk_to_db(chunk):
                 logging.warning(f"Erreur insertion product_vector: {e}")
                 continue
             values = []
-            for col in openfoodfacts_cols:
+            for col in openfoodfact_columns:
                 val = row.get(col, None)
                 if pd.isna(val):
                     val = None
@@ -111,9 +105,9 @@ def load_openfoodfacts_chunk_to_db(chunk):
         try:
             sql = f"""
                 INSERT INTO openfoodfacts (
-                    product_vector_id, {', '.join(openfoodfacts_cols)}
+                    product_vector_id, {', '.join(openfoodfact_columns)}
                 ) VALUES (
-                    {', '.join(['%s'] * (1 + len(openfoodfacts_cols)))}
+                    {', '.join(['%s'] * (1 + len(openfoodfact_columns)))}
                 ) ON CONFLICT DO NOTHING;
             """
             cur.executemany(sql, insert_rows)

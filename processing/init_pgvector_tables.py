@@ -8,10 +8,11 @@ def init_db():
         None
     """
     conn = get_db_connection()
+    if conn is None:
+        raise RuntimeError("Database connection could not be established.")
     cur = conn.cursor()
     safe_execute(cur, "CREATE EXTENSION IF NOT EXISTS vector;")
     safe_execute(cur, "CREATE EXTENSION IF NOT EXISTS pg_trgm;")
-    # Table centrale
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS product_vector (
         id SERIAL PRIMARY KEY,
@@ -21,11 +22,9 @@ def init_db():
         code_source TEXT,
         UNIQUE (name, source)
     );''')
-    # Index pour recherche rapide
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_name ON product_vector (name);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_source ON product_vector (source);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_code_source ON product_vector (code_source);")
-    # Table agribalyse (tous les indicateurs en colonnes)
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS agribalyse (
         id SERIAL PRIMARY KEY,
@@ -64,7 +63,6 @@ def init_db():
     );''')
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_code_agb ON agribalyse (code_agb);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_code_ciqual ON agribalyse (code_ciqual);")
-    # Table openfoodfacts unique avec tous les champs utiles
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS openfoodfacts (
         id SERIAL PRIMARY KEY,
@@ -106,7 +104,6 @@ def init_db():
     );''')
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_code ON openfoodfacts (code);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_product_name ON openfoodfacts (product_name);")
-    # Table greenpeace
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS greenpeace_season (
         id SERIAL PRIMARY KEY,

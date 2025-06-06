@@ -94,7 +94,6 @@ def main():
             init_db()
             logging.info('Base de données initialisée.')
 
-        # Agribalyse
         if need_agribalyse:
             start = time.time()
             logging.info('Récupération des données Agribalyse...')
@@ -109,7 +108,6 @@ def main():
         else:
             logging.info('Données Agribalyse déjà présentes, skip.')
 
-        # OpenFoodFacts (tous les chunks si possible)
         if need_openfoodfacts:
             start = time.time()
             logging.info('Traitement OpenFoodFacts (tous les chunks)...')
@@ -134,7 +132,6 @@ def main():
         else:
             logging.info('Données OpenFoodFacts déjà présentes, skip.')
 
-        # Greenpeace
         if need_greenpeace:
             start = time.time()
             logging.info('Scraping calendrier Greenpeace...')
@@ -145,7 +142,6 @@ def main():
         else:
             logging.info('Données Greenpeace déjà présentes, skip.')
 
-        # Marmiton : toujours vérifier la base MongoDB
         if need_marmiton:
             start = time.time()
             logging.info('Scraping Marmiton...')

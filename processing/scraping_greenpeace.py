@@ -1,13 +1,6 @@
-import pandas as pd
 from bs4 import BeautifulSoup
 import requests
-import json
-import os
-import psycopg2
 from sentence_transformers import SentenceTransformer
-import numpy as np
-import unicodedata
-import re
 from .utils import get_db_connection, normalize_name, vectorize_name, safe_execute
 
 greenpeace_url = "https://www.greenpeace.fr/guetteur/calendrier/"
@@ -15,9 +8,7 @@ greenpeace_url = "https://www.greenpeace.fr/guetteur/calendrier/"
 def scrape_greenpeace_calendar():
     """
     Scrape le calendrier des saisons fruits/légumes Greenpeace.
-
-    Returns:
-        dict: Mois -> liste de fruits/légumes de saison.
+    Retourne un dictionnaire mois -> liste de produits.
     """
     try:
         response = requests.get(greenpeace_url)
@@ -40,11 +31,7 @@ def scrape_greenpeace_calendar():
 def vectorize_product_name(name):
     """
     Vectorise le nom d'un produit avec sentence-transformers.
-
-    Args:
-        name (str): Nom du produit à vectoriser.
-    Returns:
-        list: Vecteur (liste de floats)
+    Retourne une liste de floats.
     """
     if not hasattr(vectorize_product_name, "model"):
         vectorize_product_name.model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -53,12 +40,7 @@ def vectorize_product_name(name):
 
 def insert_season_data_to_db(season_data):
     """
-    Insère les données de saisonnalité Greenpeace dans la base.
-
-    Args:
-        season_data (dict): Mois -> liste de produits
-    Returns:
-        None
+    Insère les données de saisonnalité Greenpeace dans la base PostgreSQL.
     """
     conn = get_db_connection()
     if conn is None:

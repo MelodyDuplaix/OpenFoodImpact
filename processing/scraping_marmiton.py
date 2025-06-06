@@ -1,5 +1,3 @@
-from urllib import response
-import pandas as pd
 from bs4 import BeautifulSoup
 import requests
 import json
@@ -17,9 +15,7 @@ base_url = "https://www.marmiton.org/recettes/index/categorie/"
 def scrapes_recipe_list():
     """
     Scrape la liste des recettes depuis Marmiton.
-
-    Returns:
-        list: Liste de dictionnaires avec titres et liens.
+    Retourne une liste de dictionnaires avec titres et liens.
     """
     recipes = []
     for recipe_type in recipes_types:
@@ -45,7 +41,7 @@ def scrapes_recipe_list():
                 if "href" not in link_element.attrs:
                     continue
                 title = title_element.get_text(strip=True)
-                link = urljoin(base_url, link_element["href"]) # type: ignore
+                link = urljoin(base_url, str(link_element["href"]))
                 recipes.append({"title": title, "link": link})
             page += 1
             time.sleep(0.05)
@@ -54,11 +50,7 @@ def scrapes_recipe_list():
 def extract_schemaorg_recipe(url):
     """
     Extrait les données recette d'une URL Marmiton via schema.org JSON-LD.
-
-    Args:
-        url (str): URL de la page recette.
-    Returns:
-        dict: Dictionnaire recette ou None si échec.
+    Retourne un dictionnaire recette ou None si échec.
     """
     try:
         response = requests.get(url, timeout=10)
@@ -66,7 +58,10 @@ def extract_schemaorg_recipe(url):
         soup = BeautifulSoup(response.content, "html.parser")
         for script in soup.find_all("script", type="application/ld+json"):
             try:
-                data = json.loads(script.string) # type: ignore
+                script_content = script.get_text()
+                if not script_content:
+                    continue
+                data = json.loads(script_content)
                 if isinstance(data, list):
                     for entry in data:
                         if entry.get("@type") == "Recipe":
@@ -82,11 +77,6 @@ def extract_schemaorg_recipe(url):
 def insert_recipes(recipes):
     """
     Insère les recettes dans MongoDB.
-
-    Args:
-        recipes (list): Liste de recettes à insérer
-    Returns:
-        None
     """
     try:
         client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
@@ -108,11 +98,6 @@ def insert_recipes(recipes):
 def remove_objectid(data):
     """
     Retire les champs _id des objets MongoDB (pour export propre).
-
-    Args:
-        data (dict/list): Données à nettoyer
-    Returns:
-        dict/list: Données sans _id
     """
     if isinstance(data, dict):
         return {k: remove_objectid(v) for k, v in data.items() if k != "_id"}
@@ -124,9 +109,7 @@ def remove_objectid(data):
 def extract_all_recipes():
     """
     Extrait toutes les recettes Marmiton et les insère dans MongoDB.
-
-    Returns:
-        list: Liste de recettes (titres, liens, détails)
+    Retourne une liste de recettes (titres, liens, détails).
     """
     start_time = time.time()
     try:
