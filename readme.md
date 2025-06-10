@@ -30,7 +30,7 @@ Readme/
 
 ### Prérequis
 
-* Python 3.x
+* Python 3.10
 * `pip`
 * Un environnement virtuel (recommandé)
 * [Docker](https://www.docker.com/) et [Docker Compose](https://docs.docker.com/compose/) pour la gestion des bases de données (PostgreSQL/pgvector et MongoDB)
@@ -39,8 +39,8 @@ Readme/
 
 1. Cloner le répertoire
 ```bash
-git clone https://github.com/remijul/2025_SpamClassifier.git
-cd 2025_SpamClassifier
+git clone https://github.com/MelodyDuplaix/projet_certif_OpenFoodImpact.git
+cd projet_certif_OpenFoodImpact
 ```
 
 2. Créer et activer l'environnement virtuel
@@ -61,6 +61,16 @@ docker compose up -d
 ```
 Cela démarre les services PostgreSQL/pgvector et MongoDB avec persistance des données dans les dossiers `pgvector_data/` et `mongodb_data/` du projet (ces dossiers sont à ignorer dans git).
 
+5. Intilialiser la base de données et l'extraction des données
+```bash
+python processing/main_pipeline.py
+```
+
+6. Lancer l'API
+```bash
+python api/main.py
+```
+
 ### Workflow du projet
 
 1. **Collecte des données:**  Extraction de données depuis Open Food Facts, Agribalyse (API), Greenpeace, Marmiton (scraping), et fichiers locaux.
@@ -77,56 +87,3 @@ Cela démarre les services PostgreSQL/pgvector et MongoDB avec persistance des d
 ## Licence
 
 Ce projet est sous licence MIT - voir le fichier LICENSE pour plus de détails.
-
-## Support
-
-Pour toute question ou problème:
-1. Vérifiez la section de dépannage
-2. Ouvrez un problème dans le référentiel
-
-```SQL
--- Table centrale pour la vectorisation des noms
-CREATE TABLE product_vector (
-    id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    name_vector VECTOR(384), -- ou VECTOR(768) selon le modèle utilisé
-    source VARCHAR(32) NOT NULL, -- 'greenpeace', 'agribalyse', 'openfoodfacts'
-    source_id TEXT, -- identifiant unique dans la source d'origine
-    extra JSONB -- métadonnées additionnelles (optionnel)
-);
-
-CREATE TABLE agribalyse (
-    id SERIAL PRIMARY KEY,
-    product_vector_id INTEGER REFERENCES product_vector(id),
-    code_agb TEXT,
-    code_ciqual TEXT,
-    groupe_aliment TEXT,
-    sous_groupe_aliment TEXT,
-    lci_name TEXT,
-    score_unique_ef FLOAT,
-    changement_climatique FLOAT,
-    -- ... autres colonnes d'impact environnemental ...
-    data JSONB -- pour stocker les autres champs bruts si besoin
-);
-
-CREATE TABLE openfoodfacts (
-    id SERIAL PRIMARY KEY,
-    product_vector_id INTEGER REFERENCES product_vector(id),
-    code TEXT,
-    product_name TEXT,
-    brands TEXT,
-    categories TEXT,
-    nutriscore_score FLOAT,
-    nutriscore_grade TEXT,
-    nova_group INTEGER,
-    -- ... autres colonnes nutritionnelles ...
-    data JSONB -- pour stocker les autres champs bruts si besoin
-);
-
-CREATE TABLE greenpeace_season (
-    id SERIAL PRIMARY KEY,
-    product_vector_id INTEGER REFERENCES product_vector(id),
-    month VARCHAR(16),
-    is_seasonal BOOLEAN
-);
-```
