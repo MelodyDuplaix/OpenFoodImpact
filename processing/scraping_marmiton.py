@@ -2,7 +2,7 @@ from bs4 import BeautifulSoup
 import requests
 import json
 import time
-import pymongo
+from pymongo import MongoClient
 from urllib.parse import urljoin
 from dotenv import load_dotenv
 import os
@@ -79,7 +79,7 @@ def insert_recipes(recipes):
     Insère les recettes dans MongoDB.
     """
     try:
-        client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
+        client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
         db = client["OpenFoodImpact"]
         collection = db["recipes"]
         if recipes:

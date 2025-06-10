@@ -5,8 +5,13 @@ pyarrow
 fastparquet
 requests
 pymongo
-bs4
 psycopg2-binary
 dotenv
 sentence-transformers
 pytest
+fastapi
+uvicorn
+passlib
+python-multipart
+bcrypt
+python-jose

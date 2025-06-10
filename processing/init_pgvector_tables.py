@@ -110,6 +110,14 @@ def init_db():
         product_vector_id INTEGER REFERENCES product_vector(id),
         month TEXT
     );''')
+    safe_execute(cur, '''
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        user_level TEXT NOT NULL DEFAULT 'user'
+    );''')
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);")
     conn.commit()
     cur.close()
     conn.close()

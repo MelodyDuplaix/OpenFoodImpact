@@ -24,8 +24,10 @@ def is_db_filled():
         )
         cur = conn.cursor()
         cur.execute('SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s);', ('product_vector',))
-        exists = cur.fetchone()[0] # type: ignore
-        if not exists:
+        exists_product_vector = cur.fetchone()[0] # type: ignore
+        cur.execute('SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s);', ('users',))
+        exists_users = cur.fetchone()[0] # type: ignore
+        if not exists_product_vector or not exists_users:
             cur.close()
             conn.close()
             return False
@@ -84,8 +86,9 @@ def main():
     need_openfoodfacts = not is_source_filled('openfoodfacts')
     need_greenpeace = not is_source_filled('greenpeace_season')
     need_marmiton = not is_marmiton_filled()
+    need_users = not is_source_filled('users')
 
-    if not (need_agribalyse or need_openfoodfacts or need_greenpeace or need_marmiton):
+    if not (need_agribalyse or need_openfoodfacts or need_greenpeace or need_marmiton or need_users):
         logging.info('Toutes les sources (Postgres + MongoDB Marmiton) sont déjà remplies. Arrêt du pipeline.')
         return
     try:
