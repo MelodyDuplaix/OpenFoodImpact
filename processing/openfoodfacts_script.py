@@ -3,15 +3,25 @@ import sys
 import logging
 import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from processing.utils import get_db_connection, safe_execute
+from processing.utils import get_db_connection, safe_execute, normalize_name, vectorize_name
 
-openfoodfacts_url = "https://fr.openfoodfacts.org/data/fr.openfoodfacts.org.products.csv"
-openfoodfact_columns = [        
-        "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "image_url",
-        "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
-        "vitamin_c_100g", "vitamin_b12_100g", "vitamin_d_100g", "iron_100g", "calcium_100g",
-        "nutriscore_score", " nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
-        "ingredients_text", "ingredients_analysis_tags", "additives_tags", "allergens", "serving_size", "serving_quantity"
+# openfoodfacts_url = "https://fr.openfoodfacts.org/data/fr.openfoodfacts.org.products.csv"
+openfoodfacts_url = "data/fr.openfoodfacts.org.products.csv"
+# Liste des colonnes du CSV (avec tirets pour les colonnes concernées)
+openfoodfact_csv_columns = [
+    "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "countries_tags", "image_url",
+    "energy-kcal_100g", "fat_100g", "saturated-fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
+    "vitamin-c_100g", "vitamin-b12_100g", "vitamin-d_100g", "iron_100g", "calcium_100g",
+    "nutriscore_score", "nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
+    "ingredients_text", "ingredients_analysis_tags", "additives_tags", "allergens", "serving_size", "serving_quantity"
+]
+# Liste des colonnes pour la base (avec underscores, SANS countries_tags)
+openfoodfact_columns = [
+    "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "image_url",
+    "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
+    "vitamin_c_100g", "vitamin_b12_100g", "vitamin_d_100g", "iron_100g", "calcium_100g",
+    "nutriscore_score", "nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
+    "ingredients_text", "ingredients_analysis_tags", "additives_tags", "allergens", "serving_size", "serving_quantity"
 ]
 
 def extract_openfoodfacts_chunks():
@@ -31,8 +41,8 @@ def extract_openfoodfacts_chunks():
         "vitamin-d_100g": "vitamin_d_100g",
     }
     try:
-        for chunk in pd.read_csv(openfoodfacts_url, nrows=2000000, sep="\t", encoding="utf-8", dtype={'code': str}, 
-                                 low_memory=False, on_bad_lines='skip', usecols=openfoodfact_columns, chunksize=1000):
+        for chunk in pd.read_csv(openfoodfacts_url, nrows=200000, sep="\t", encoding="utf-8", dtype={'code': str}, 
+                                 low_memory=True, on_bad_lines='skip', usecols=openfoodfact_csv_columns, chunksize=1000):
             chunk = chunk.rename(columns=rename_map)
             yield chunk
     except Exception as e:
@@ -42,6 +52,7 @@ def extract_openfoodfacts_chunks():
 def load_openfoodfacts_chunk_to_db(chunk):
     """
     Insère un chunk de données OpenFoodFacts dans la base PostgreSQL, avec nettoyage et gestion d'erreurs.
+    Enrichi : insère aussi dans product_vector avec nom normalisé et vectorisé.
 
     Args:
         chunk (pd.DataFrame): Chunk de données à insérer
@@ -67,18 +78,21 @@ def load_openfoodfacts_chunk_to_db(chunk):
             code = row.get('code')
             if not isinstance(name, str) or not name.strip() or not code:
                 continue
+            # Normalisation et vectorisation du nom
+            name_normalized = normalize_name(name.strip())
+            name_vector = vectorize_name(name_normalized)
             try:
                 safe_execute(cur, """
-                    INSERT INTO product_vector (name, source, code_source)
-                    VALUES (%s, %s, %s)
+                    INSERT INTO product_vector (name, name_vector, source, code_source)
+                    VALUES (%s, %s, %s, %s)
                     ON CONFLICT DO NOTHING
                     RETURNING id;
-                """, (name.strip(), 'openfoodfacts', code))
+                """, (name_normalized, name_vector, 'openfoodfacts', code))
                 result = cur.fetchone()
                 if result:
                     product_vector_id = result[0]
                 else:
-                    safe_execute(cur, "SELECT id FROM product_vector WHERE name = %s AND source = %s;", (name.strip(), 'openfoodfacts'))
+                    safe_execute(cur, "SELECT id FROM product_vector WHERE name = %s AND source = %s;", (name_normalized, 'openfoodfacts'))
                     fetch = cur.fetchone()
                     if not fetch:
                         continue

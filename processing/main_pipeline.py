@@ -151,9 +151,17 @@ def main():
             recipes = extract_all_recipes()
             logging.info(f"{len(recipes)} recettes extraites et sauvegardées.")
             logging.info(f"Marmiton traité en {time.time()-start:.2f} sec")
+            try:
+                from processing.clean_marmiton_ingredients import extraire_ingredients_mongo, insert_ingredients_to_pgvector, update_recipes_with_normalized_ingredients
+                logging.info('Nettoyage et insertion des ingrédients Marmiton dans product_vector...')
+                ingredients_nettoyes = extraire_ingredients_mongo()
+                insert_ingredients_to_pgvector(ingredients_nettoyes)
+                update_recipes_with_normalized_ingredients()
+                logging.info('Ingrédients Marmiton insérés et recettes mises à jour.')
+            except Exception as e:
+                logging.error(f'Erreur lors du nettoyage/insertion des ingrédients Marmiton : {e}')
         else:
             logging.info('Recettes Marmiton déjà extraites en base MongoDB, skip.')
-
         logging.info('Pipeline terminé avec succès.')
     except Exception as e:
         logging.error(f'Erreur pipeline: {e}')

@@ -47,7 +47,7 @@ async def login(body: UserAuthRequest):
     return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": "Invalid credentials"})
 
 app = FastAPI(
-    title="Cooking API",
+    title="DataFoodImpact API",
     description="API pour la gestion des recettes, ingrédients, utilisateurs, etc.",
     version="1.0.0",
     openapi_tags=[
