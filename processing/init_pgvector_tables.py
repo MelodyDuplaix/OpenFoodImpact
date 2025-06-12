@@ -58,8 +58,7 @@ def init_db():
         appauvrissement_couche_ozone FLOAT,
         rayonnements_ionisants FLOAT,
         eutrophisation_eaux_douces FLOAT,
-        changement_climatique_fossile FLOAT,
-        score FLOAT
+        changement_climatique_fossile FLOAT
     );''')
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_code_agb ON agribalyse (code_agb);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_code_ciqual ON agribalyse (code_ciqual);")
@@ -69,11 +68,9 @@ def init_db():
         product_vector_id INTEGER REFERENCES product_vector(id),
         code TEXT,
         product_name TEXT,
-        generic_name TEXT,
         brands TEXT,
         categories TEXT,
         labels_tags TEXT,
-        origins_tags TEXT,
         packaging_tags TEXT,
         image_url TEXT,
         energy_kcal_100g FLOAT,
@@ -84,12 +81,6 @@ def init_db():
         fiber_100g FLOAT,
         proteins_100g FLOAT,
         salt_100g FLOAT,
-        sodium_100g FLOAT,
-        vitamin_c_100g FLOAT,
-        vitamin_b12_100g FLOAT,
-        vitamin_d_100g FLOAT,
-        iron_100g FLOAT,
-        calcium_100g FLOAT,
         nutriscore_score FLOAT,
         nutriscore_grade TEXT,
         nova_group INTEGER,
@@ -98,9 +89,7 @@ def init_db():
         ingredients_text TEXT,
         ingredients_analysis_tags TEXT,
         additives_tags TEXT,
-        allergens TEXT,
-        serving_size TEXT,
-        serving_quantity TEXT
+        sodium_100g FLOAT
     );''')
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_code ON openfoodfacts (code);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_product_name ON openfoodfacts (product_name);")

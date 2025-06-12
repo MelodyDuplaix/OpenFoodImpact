@@ -69,7 +69,7 @@ def analyse_product_vector_overlap():
     df_exact = pd.read_sql(SQL_ANALYSE, conn)
     print(df_exact.to_string(index=False))
     # --- PARTIE 2 : fuzzy + vector search ---
-    print("\nAnalyse des produits similaires (fuzzy + vector) entre sources (parallélisé) :")
+    print("\nAnalyse des produits similaires (fuzzy + vector) entre sources:")
     cur.execute("SELECT DISTINCT source FROM product_vector;")
     sources = [row[0] for row in cur.fetchall()]
     seuil_fuzzy = 0.65
@@ -148,7 +148,7 @@ def analyse_product_vector_overlap():
         for res in executor.map(lambda args: count_similar_names_both_ways(*args), pairs):
             results.append(res)
     df_fuzzy = pd.DataFrame(results)
-    print("\nRésultats fuzzy/vector sur un échantillon (parallélisé, rapide, 2 sens) :")
+    print("\nRésultats fuzzy/vector sur un échantillon:")
     print(df_fuzzy.to_string(index=False))
     cur.close()
     conn.close()
