@@ -153,9 +153,63 @@ def analyse_product_vector_overlap():
     cur.close()
     conn.close()
 
+    # --- Export d'un échantillon de paires matchées avec leurs scores pour différents seuils ---
+    seuils = [0.5, 0.6, 0.7, 0.8]
+    sample_pairs = []
+    for seuil in seuils:
+        print(f"\nExtraction d'un échantillon de paires matchées pour seuil global_score > {seuil}...")
+        # Pour chaque paire de sources, on prend un échantillon de noms de s1 et on cherche les meilleurs matches dans s2
+        for s1 in sources:
+            for s2 in sources:
+                if s1 == s2:
+                    continue
+                # Echantillon de noms dans s1
+                cur = psycopg2.connect(
+                    dbname=os.getenv('POSTGRES_DB', 'postgres'),
+                    user=os.getenv('POSTGRES_USER', 'postgres'),
+                    password=os.getenv('POSTGRES_PASSWORD', 'postgres'),
+                    host=os.getenv('POSTGRES_HOST', 'localhost'),
+                    port=os.getenv('POSTGRES_PORT', '5432')
+                ).cursor()
+                cur.execute("SELECT name FROM product_vector WHERE source = %s;", (s1,))
+                names1 = [row[0] for row in cur.fetchall()]
+                if len(names1) > 50:
+                    names1 = random.sample(names1, 50)
+                for name in names1:
+                    # On cherche le meilleur match dans s2
+                    cur.execute(f"""
+                        WITH reference AS (
+                            SELECT name, name_vector FROM product_vector WHERE name = %s AND source = %s
+                        )
+                        SELECT pv.name, pv.source, pv.code_source,
+                               (0.4 * (1 - (pv.name_vector <=> r.name_vector)) + 0.6 * similarity(pv.name, r.name)) AS global_score,
+                               1 - (pv.name_vector <=> r.name_vector) AS vector_similarity,
+                               similarity(pv.name, r.name) AS fuzzy_similarity
+                        FROM product_vector pv
+                        CROSS JOIN reference r
+                        WHERE pv.source = %s
+                        ORDER BY global_score DESC
+                        LIMIT 1;
+                    """, (name, s1, s2))
+                    match = cur.fetchone()
+                    if match and match[3] > seuil:
+                        sample_pairs.append({
+                            'source1': s1,
+                            'name1': name,
+                            'source2': match[1],
+                            'name2': match[0],
+                            'code_source2': match[2],
+                            'global_score': round(match[3], 3),
+                            'vector_similarity': round(match[4], 3),
+                            'fuzzy_similarity': round(match[5], 3),
+                            'seuil': seuil
+                        })
+                cur.close()
+    df_sample = pd.DataFrame(sample_pairs)
+    # --- Génération du PDF comparatif ---
     pdf_path = "docs/comparaison_similarite_sources.pdf"
     with PdfPages(pdf_path) as pdf:
-        # Page 1 : Tableaux comparatifs
+        # Page 1 : Tableaux comparatifs exact et fuzzy global (seuil par défaut)
         fig, axes = plt.subplots(2, 1, figsize=(12, 10))
         axes[0].axis('off')
         axes[0].set_title('Correspondance exacte entre sources')
@@ -164,7 +218,7 @@ def analyse_product_vector_overlap():
         table0.set_fontsize(8)
         table0.scale(1, 1.5)
         axes[1].axis('off')
-        axes[1].set_title('Similarité fuzzy + vector (échantillon, 2 sens) entre sources')
+        axes[1].set_title('Similarité fuzzy + vector (échantillon, 2 sens, seuil=0.65) entre sources')
         table1 = axes[1].table(cellText=df_fuzzy.values, colLabels=df_fuzzy.columns, loc='center')
         table1.auto_set_font_size(False)
         table1.set_fontsize(8)
@@ -172,28 +226,61 @@ def analyse_product_vector_overlap():
         plt.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
-        # Page 2 : Barplot comparatif
+
+        # Page 2 : Barplot fusionné multi-seuils/méthodes
+        # Préparation des données pour le barplot fusionné
         df_merge = pd.merge(
             df_exact[['source1', 'source2', 'percent_source1', 'percent_source2']],
             df_fuzzy[['source1', 'source2', 'percent_source1', 'percent_source2']],
             on=['source1', 'source2'],
-            suffixes=('_exact', '_fuzzy')
+            suffixes=('_exact', '_fuzzy065')
         )
-        fig2, ax2 = plt.subplots(figsize=(14, 7))
-        bar_width = 0.2
+        # Ajout des taux fuzzy+vector pour chaque seuil
+        fuzzy_seuils = [0.5, 0.6, 0.7, 0.8]
+        taux_fuzzy = {}
+        for seuil in fuzzy_seuils:
+            taux = []
+            for i, row in df_merge.iterrows():
+                s1, s2 = row['source1'], row['source2']
+                n = len(df_sample[(df_sample['source1']==s1)&(df_sample['source2']==s2)&(df_sample['seuil']==seuil)])
+                total = len(df_sample[(df_sample['source1']==s1)&(df_sample['source2']==s2)&(df_sample['seuil']==seuil)])
+                # Pourcentage sur l'échantillon (ici, n/50 max)
+                taux.append(100*n/50 if total else 0)
+            taux_fuzzy[seuil] = taux
+        # Barplot fusionné
+        fig2, ax2 = plt.subplots(figsize=(max(12, len(df_merge)*0.7), 7))
+        bar_width = 0.13
         x = range(len(df_merge))
-        ax2.bar(x, df_merge['percent_source1_exact'], width=bar_width, label='Exact (source1)')
-        ax2.bar([i + bar_width for i in x], df_merge['percent_source1_fuzzy'], width=bar_width, label='Fuzzy+Vector (source1)')
-        ax2.bar([i + 2*bar_width for i in x], df_merge['percent_source2_exact'], width=bar_width, label='Exact (source2)', alpha=0.5)
-        ax2.bar([i + 3*bar_width for i in x], df_merge['percent_source2_fuzzy'], width=bar_width, label='Fuzzy+Vector (source2)', alpha=0.5)
-        ax2.set_xticks([i + bar_width*1.5 for i in x])
+        ax2.bar([i-2*bar_width for i in x], df_merge['percent_source1_exact'], width=bar_width, label='Exact (source1)')
+        ax2.bar([i-bar_width for i in x], df_merge['percent_source2_exact'], width=bar_width, label='Exact (source2)', alpha=0.5)
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+        for idx, seuil in enumerate(fuzzy_seuils):
+            ax2.bar([i+(idx)*bar_width for i in x], taux_fuzzy[seuil], width=bar_width, label=f'Fuzzy+Vector (seuil={seuil})', color=colors[idx], alpha=0.7)
+        ax2.set_xticks([i for i in x])
         ax2.set_xticklabels([f"{a} vs {b}" for a, b in zip(df_merge['source1'], df_merge['source2'])], rotation=45, ha='right')
         ax2.set_ylabel('Pourcentage de similarité (%)')
-        ax2.set_title('Comparaison du pourcentage de similarité entre sources (2 sens)')
+        ax2.set_title('Comparaison du pourcentage de similarité entre sources (matching exact et fuzzy+vector, multi-seuils)')
         ax2.legend()
         plt.tight_layout()
         pdf.savefig(fig2)
         plt.close(fig2)
+
+        # Pages suivantes : Tableaux échantillons pour chaque seuil (max 15 lignes)
+        for seuil in seuils:
+            df_seuil = df_sample[df_sample['seuil'] == seuil]
+            if not df_seuil.empty:
+                # Tableau des paires matchées pour ce seuil (échantillon max 15 lignes)
+                df_seuil_sample = df_seuil.sample(n=min(15, len(df_seuil)), random_state=42)
+                fig3, ax3 = plt.subplots(figsize=(14, min(0.5*len(df_seuil_sample)+2, 10)))
+                ax3.axis('off')
+                ax3.set_title(f'Echantillon de paires matchées (global_score > {seuil})')
+                table3 = ax3.table(cellText=df_seuil_sample.values.tolist(), colLabels=list(df_seuil_sample.columns), loc='center')
+                table3.auto_set_font_size(False)
+                table3.set_fontsize(8)
+                table3.scale(1, 1.5)
+                plt.tight_layout()
+                pdf.savefig(fig3)
+                plt.close(fig3)
     print(f"\nPDF généré : {pdf_path}")
 
 if __name__ == '__main__':
