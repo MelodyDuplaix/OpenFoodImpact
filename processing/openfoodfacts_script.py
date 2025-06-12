@@ -9,19 +9,18 @@ from processing.utils import get_db_connection, safe_execute, normalize_name, ve
 openfoodfacts_url = "data/fr.openfoodfacts.org.products.csv"
 # Liste des colonnes du CSV (avec tirets pour les colonnes concernées)
 openfoodfact_csv_columns = [
-    "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "countries_tags", "image_url",
+    "code", "product_name", "brands", "categories", "labels_tags", "packaging_tags", "countries_tags", "image_url",
     "energy-kcal_100g", "fat_100g", "saturated-fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
-    "vitamin-c_100g", "vitamin-b12_100g", "vitamin-d_100g", "iron_100g", "calcium_100g",
+    "vitamin-b12_100g", "vitamin-d_100g",
     "nutriscore_score", "nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
-    "ingredients_text", "ingredients_analysis_tags", "additives_tags", "allergens", "serving_size", "serving_quantity"
+    "ingredients_text", "ingredients_analysis_tags", "additives_tags"
 ]
 # Liste des colonnes pour la base (avec underscores, SANS countries_tags)
 openfoodfact_columns = [
-    "code", "product_name", "generic_name", "brands", "categories", "labels_tags", "origins_tags", "packaging_tags", "image_url",
+    "code", "product_name", "brands", "categories", "labels_tags", "packaging_tags", "image_url",
     "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
-    "vitamin_c_100g", "vitamin_b12_100g", "vitamin_d_100g", "iron_100g", "calcium_100g",
     "nutriscore_score", "nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
-    "ingredients_text", "ingredients_analysis_tags", "additives_tags", "allergens", "serving_size", "serving_quantity"
+    "ingredients_text", "ingredients_analysis_tags", "additives_tags"
 ]
 
 def extract_openfoodfacts_chunks():
@@ -36,9 +35,7 @@ def extract_openfoodfacts_chunks():
     rename_map = {
         "energy-kcal_100g": "energy_kcal_100g",
         "saturated-fat_100g": "saturated_fat_100g",
-        "vitamin-c_100g": "vitamin_c_100g",
-        "vitamin-b12_100g": "vitamin_b12_100g",
-        "vitamin-d_100g": "vitamin_d_100g",
+        "vitamin-b12_100g": "vitamin_b12_100g"
     }
     try:
         for chunk in pd.read_csv(openfoodfacts_url, nrows=200000, sep="\t", encoding="utf-8", dtype={'code': str}, 
@@ -66,12 +63,18 @@ def load_openfoodfacts_chunk_to_db(chunk):
     cur = conn.cursor()
     numeric_cols = [
         "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
-        "vitamin_c_100g", "vitamin_b12_100g", "vitamin_d_100g", "iron_100g", "calcium_100g",
         "nutriscore_score", "nova_group", "environmental_score_score"
     ]
     insert_rows = []
     for _, row in chunk.iterrows():
         try:
+            # Remplacer 'unknown' et 'not-applicable' par None dans les champs _grade
+            for col in row.index:
+                if col.endswith('_grade') and str(row[col]).lower() in ['unknown', 'not-applicable']:
+                    row[col] = None
+            # Sauter les lignes qui sont vides à plus de 80%
+            if row.isna().mean() > 0.8:
+                continue
             if not isinstance(row.get('countries_tags'), str) or 'en:france' not in row['countries_tags']:
                 continue
             name = row.get('product_name')

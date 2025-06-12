@@ -12,7 +12,7 @@ agribalyse_cols = [
     'formation_photochimique_ozone', 'livraison', 'preparation', 'changement_climatique_biogenique',
     'acidification_terrestre_eaux_douces', 'groupe_aliment', 'changement_climatique_cas',
     'appauvrissement_couche_ozone', 'rayonnements_ionisants', 'eutrophisation_eaux_douces',
-    'changement_climatique_fossile', 'score'
+    'changement_climatique_fossile'
 ]
 
 def extract_agribalyse_data():

@@ -78,8 +78,6 @@ def normalize_name(texte):
     # Supprimer les stopwords, adjectifs, quantités, préparation
     mots = texte.split()
     mots_nettoyes = [mot for mot in mots if mot not in STOPWORDS and mot not in ADJECTIFS and mot not in QUANTITES]
-    # Normalisation pluriel/singulier
-    mots_nettoyes = [re.sub(r"(s|x)$", "", mot) for mot in mots_nettoyes]
     # Supprimer les accents
     mots_nettoyes = [unicodedata.normalize('NFD', mot).encode('ascii', 'ignore').decode('utf-8') for mot in mots_nettoyes]
     # Nettoyer les espaces multiples et bords
