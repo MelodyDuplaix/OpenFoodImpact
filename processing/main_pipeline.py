@@ -14,6 +14,12 @@ import psycopg2
 import pymongo
 
 def is_db_filled():
+    """
+    Vérifie si la base de données PostgreSQL contient des données dans la table product_vector.
+
+    Returns:
+        bool: True si la table contient des données, False sinon.
+    """
     try:
         conn = psycopg2.connect(
             dbname=os.getenv('POSTGRES_DB', 'postgres'),
@@ -40,6 +46,15 @@ def is_db_filled():
         return False
 
 def is_source_filled(table):
+    """
+    Vérifie si une source spécifique (table) est remplie dans la base de données PostgreSQL.
+
+    Args:
+        table (str): Nom de la table à vérifier.
+
+    Returns:
+        bool: True si la table contient des données, False sinon.
+    """
     try:
         conn = psycopg2.connect(
             dbname=os.getenv('POSTGRES_DB', 'postgres'),
@@ -66,6 +81,12 @@ def is_source_filled(table):
         return False
 
 def is_marmiton_filled():
+    """
+    Vérifie si la base de données MongoDB (Marmiton) contient des données.
+
+    Returns:
+        bool: True si la collection contient des données, False sinon.
+    """
     try:
         client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
         db = client["OpenFoodImpact"]
@@ -78,6 +99,9 @@ def is_marmiton_filled():
         return False
 
 def main():
+    """
+    Fonction principale du pipeline de traitement des données.
+    """
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     need_init_db = not is_db_filled()
     need_agribalyse = not is_source_filled('agribalyse')

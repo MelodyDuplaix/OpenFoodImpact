@@ -3,6 +3,9 @@ import pandas as pd
 import os
 
 def null_percent_report():
+    """
+    Génère un rapport sur le pourcentage de valeurs NULL dans les colonnes des tables de la base de données PostgreSQL.
+    """
     conn = psycopg2.connect(
         dbname=os.getenv('POSTGRES_DB', 'postgres'),
         user=os.getenv('POSTGRES_USER', 'postgres'),
