@@ -52,7 +52,7 @@ async def get_recipes(
             query["totalTime"] = {"$lte": total_time_max}
         
         if category:
-            query["recipeCategory"] = {"$regex": f".*{category}.*", "$options": "i"}
+            query["category"] = {"$regex": f".*{category}.*", "$options": "i"}
         
         if ingredients:
             normalized_ingredients = [normalize_name(ing) for ing in ingredients]

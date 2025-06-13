@@ -11,6 +11,7 @@ load_dotenv()
 
 recipes_types = ["entree", "plat-principal", "dessert", "boissons"]
 base_url = "https://www.marmiton.org/recettes/index/categorie/"
+max_number_per_category = 3000
 
 def scrapes_recipe_list():
     """
@@ -23,6 +24,7 @@ def scrapes_recipe_list():
     for recipe_type in recipes_types:
         logging.info(f"Scraping {recipe_type} recipes")
         page = 1
+        category_recipes_count = 0  # Compteur pour chaque catégorie
         while True:
             url = f"{base_url}{recipe_type}/" if page == 1 else f"{base_url}{recipe_type}/{page}"
             try:
@@ -33,9 +35,11 @@ def scrapes_recipe_list():
                 break
             soup = BeautifulSoup(response.content, "html.parser")
             recipe_cards = soup.select(".type-Recipe")
-            if not recipe_cards or len(recipes) >= 5000:
+            if not recipe_cards:
                 break
             for recipe in recipe_cards:
+                if category_recipes_count >= max_number_per_category:
+                    break
                 title_element = recipe.select_one(".mrtn-card__title")
                 link_element = recipe.select_one("a")
                 if not title_element or not link_element:
@@ -44,7 +48,10 @@ def scrapes_recipe_list():
                     continue
                 title = title_element.get_text(strip=True)
                 link = urljoin(base_url, str(link_element["href"]))
-                recipes.append({"title": title, "link": link})
+                recipes.append({"title": title, "link": link, "category": recipe_type})
+                category_recipes_count += 1
+            if category_recipes_count >= max_number_per_category:
+                break
             page += 1
             time.sleep(0.05)
     return recipes
