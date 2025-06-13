@@ -3,7 +3,10 @@ import re
 import time
 import os
 import sys
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from processing.utils import get_db_connection
+from processing.build_ingredient_links import create_ingredient_link_table, fill_ingredient_links
 from processing.init_pgvector_tables import init_db
 from processing.agribalyse_api import get_agribalyse_data, insert_agribalyse_data_to_db
 from processing.openfoodfacts_script import load_openfoodfacts_chunk_to_db, etl_openfoodfacts
@@ -112,6 +115,7 @@ def main():
     need_greenpeace = not is_source_filled('greenpeace_season')
     need_marmiton = not is_marmiton_filled()
     need_users = not is_source_filled('users')
+    need_ingredients_link = not is_source_filled('ingredient_link')
 
     if not (need_agribalyse or need_openfoodfacts or need_greenpeace or need_marmiton or need_users):
         logging.info('Toutes les sources (Postgres + MongoDB Marmiton) sont déjà remplies. Arrêt du pipeline.')
@@ -190,6 +194,22 @@ def main():
                 logging.error(f'Erreur lors du nettoyage/insertion des ingrédients Marmiton : {e}')
         else:
             logging.info('Recettes Marmiton déjà extraites en base MongoDB, skip.')
+            
+        if need_ingredients_link:
+            # Lancement du script build_ingredient_links.py
+            logging.info('Création et remplissage de la table ingredient_link...')
+            try:
+                conn = get_db_connection()
+                if not conn:
+                    print("Connexion à la base impossible.")
+                    return
+                create_ingredient_link_table(conn)
+                fill_ingredient_links(conn)
+                conn.close()
+                logging.info('Table ingredient_link créée et remplie avec succès.')
+            except Exception as e:
+                logging.error(f'Erreur lors de la création/remplissage de la table ingredient_link : {e}')
+
         logging.info('Pipeline terminé avec succès.')
     except Exception as e:
         logging.error(f'Erreur pipeline: {e}')

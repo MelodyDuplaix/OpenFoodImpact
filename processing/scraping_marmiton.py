@@ -11,7 +11,7 @@ load_dotenv()
 
 recipes_types = ["entree", "plat-principal", "dessert", "boissons"]
 base_url = "https://www.marmiton.org/recettes/index/categorie/"
-max_number_per_category = 3000
+max_number_per_category = 4000
 
 def scrapes_recipe_list():
     """
