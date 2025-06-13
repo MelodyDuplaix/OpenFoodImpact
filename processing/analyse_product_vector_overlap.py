@@ -54,6 +54,12 @@ ORDER BY percent_source1 DESC, percent_source2 DESC;
 """
 
 def analyse_product_vector_overlap():
+    """
+    Analyse la similarité des produits entre différentes sources dans la table product_vector. Génère un PDF comparatif des résultats.
+
+    Returns:
+        None
+    """
     conn = psycopg2.connect(
         dbname=os.getenv('POSTGRES_DB', 'postgres'),
         user=os.getenv('POSTGRES_USER', 'postgres'),
@@ -77,6 +83,16 @@ def analyse_product_vector_overlap():
     results = []
 
     def count_similar_names_both_ways(s1, s2):
+        """
+        Pour une paire de sources (s1, s2), compte le nombre de noms similaires dans les deux sens
+        
+        Args:
+            s1 (str): Première source.
+            s2 (str): Deuxième source.
+            
+        Returns:
+            dict: Dictionnaire contenant les résultats de la comparaison.
+        """
         # Analyse s1 -> s2
         local_conn = psycopg2.connect(
             dbname=os.getenv('POSTGRES_DB', 'postgres'),
@@ -210,7 +226,7 @@ def analyse_product_vector_overlap():
     pdf_path = "docs/comparaison_similarite_sources.pdf"
     with PdfPages(pdf_path) as pdf:
         # Page 1 : Tableaux comparatifs exact et fuzzy global (seuil par défaut)
-        fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+        fig, axes = plt.subplots(2, 1, figsize=(11.69, 8.27))  # A4 landscape in inches
         axes[0].axis('off')
         axes[0].set_title('Correspondance exacte entre sources')
         table0 = axes[0].table(cellText=df_exact.values, colLabels=df_exact.columns, loc='center')
@@ -228,14 +244,12 @@ def analyse_product_vector_overlap():
         plt.close(fig)
 
         # Page 2 : Barplot fusionné multi-seuils/méthodes
-        # Préparation des données pour le barplot fusionné
         df_merge = pd.merge(
             df_exact[['source1', 'source2', 'percent_source1', 'percent_source2']],
             df_fuzzy[['source1', 'source2', 'percent_source1', 'percent_source2']],
             on=['source1', 'source2'],
             suffixes=('_exact', '_fuzzy065')
         )
-        # Ajout des taux fuzzy+vector pour chaque seuil
         fuzzy_seuils = [0.5, 0.6, 0.7, 0.8]
         taux_fuzzy = {}
         for seuil in fuzzy_seuils:
@@ -244,11 +258,9 @@ def analyse_product_vector_overlap():
                 s1, s2 = row['source1'], row['source2']
                 n = len(df_sample[(df_sample['source1']==s1)&(df_sample['source2']==s2)&(df_sample['seuil']==seuil)])
                 total = len(df_sample[(df_sample['source1']==s1)&(df_sample['source2']==s2)&(df_sample['seuil']==seuil)])
-                # Pourcentage sur l'échantillon (ici, n/50 max)
                 taux.append(100*n/50 if total else 0)
             taux_fuzzy[seuil] = taux
-        # Barplot fusionné
-        fig2, ax2 = plt.subplots(figsize=(max(12, len(df_merge)*0.7), 7))
+        fig2, ax2 = plt.subplots(figsize=(11.69, 8.27))
         bar_width = 0.13
         x = range(len(df_merge))
         ax2.bar([i-2*bar_width for i in x], df_merge['percent_source1_exact'], width=bar_width, label='Exact (source1)')
@@ -269,19 +281,104 @@ def analyse_product_vector_overlap():
         for seuil in seuils:
             df_seuil = df_sample[df_sample['seuil'] == seuil]
             if not df_seuil.empty:
-                # Tableau des paires matchées pour ce seuil (échantillon max 15 lignes)
-                df_seuil_sample = df_seuil.sample(n=min(15, len(df_seuil)), random_state=42)
-                fig3, ax3 = plt.subplots(figsize=(14, min(0.5*len(df_seuil_sample)+2, 10)))
+                fig3, ax3 = plt.subplots(figsize=(11.69, min(8.27, 0.5*len(df_seuil)+2)))
                 ax3.axis('off')
                 ax3.set_title(f'Echantillon de paires matchées (global_score > {seuil})')
-                table3 = ax3.table(cellText=df_seuil_sample.values.tolist(), colLabels=list(df_seuil_sample.columns), loc='center')
+                table3 = ax3.table(cellText=df_seuil.sample(n=min(15, len(df_seuil)), random_state=42).values.tolist(), colLabels=list(df_seuil.columns), loc='center')
                 table3.auto_set_font_size(False)
                 table3.set_fontsize(8)
                 table3.scale(1, 1.5)
                 plt.tight_layout()
                 pdf.savefig(fig3)
                 plt.close(fig3)
+
+        # --- Comparaison matching exact vs fuzzy+vector sur la couverture multi-sources ---
+        cur2 = psycopg2.connect(
+            dbname=os.getenv('POSTGRES_DB', 'postgres'),
+            user=os.getenv('POSTGRES_USER', 'postgres'),
+            password=os.getenv('POSTGRES_PASSWORD', 'postgres'),
+            host=os.getenv('POSTGRES_HOST', 'localhost'),
+            port=os.getenv('POSTGRES_PORT', '5432')
+        ).cursor()
+        def fetch_count_or_zero():
+            res = cur2.fetchone()
+            return res[0] if res and res[0] is not None else 0
+        cur2.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT name
+                FROM product_vector
+                GROUP BY name
+                HAVING COUNT(DISTINCT source) = (SELECT COUNT(DISTINCT source) FROM product_vector)
+            ) t;
+        """)
+        nb_exact_all = fetch_count_or_zero()
+        cur2.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT id_source, source, COUNT(DISTINCT linked_source) AS nb_sources_liees
+                FROM ingredient_link
+                GROUP BY id_source, source
+                HAVING COUNT(DISTINCT linked_source) = (
+                    SELECT COUNT(DISTINCT source) - 1 FROM product_vector
+                )
+            ) t;
+        """)
+        nb_fuzzy_all = fetch_count_or_zero()
+        cur2.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT name
+                FROM product_vector
+                WHERE source != 'greenpeace_season'
+                GROUP BY name
+                HAVING COUNT(DISTINCT source) = (
+                    SELECT COUNT(DISTINCT source) FROM product_vector WHERE source != 'greenpeace'
+                )
+            ) t;
+        """)
+        nb_exact_no_gp = fetch_count_or_zero()
+        cur2.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT id_source, source, COUNT(DISTINCT linked_source) AS nb_sources_liees
+                FROM ingredient_link
+                WHERE source != 'greenpeace' AND linked_source != 'greenpeace_season'
+                GROUP BY id_source, source
+                HAVING COUNT(DISTINCT linked_source) = (
+                    SELECT COUNT(DISTINCT source) - 1 FROM product_vector WHERE source != 'greenpeace'
+                )
+            ) t;
+        """)
+        nb_fuzzy_no_gp = fetch_count_or_zero()
+        cur2.close()
+
+        # Ajout d'une page synthèse dans le PDF
+        fig, ax = plt.subplots(figsize=(11.69, 8.27))
+        ax.axis('off')
+        ax.set_title('Synthèse matching exact vs fuzzy+vector (toutes sources et hors greenpeace)', fontsize=14)
+        table_data = [
+            ["Type de matching", "Toutes sources", "Hors greenpeace"],
+            ["Matching exact (noms identiques)", nb_exact_all, nb_exact_no_gp],
+            ["Fuzzy+vector (liens)", nb_fuzzy_all, nb_fuzzy_no_gp],
+        ]
+        table = ax.table(cellText=table_data, loc='center', cellLoc='center', colLabels=None, colColours=["#f0f0f0"]*3)
+        table.auto_set_font_size(False)
+        table.set_fontsize(12)
+        table.scale(1, 2)
+        # Ajout d'une phrase dynamique d'interprétation
+        percent_gain = 0
+        if nb_exact_all > 0:
+            percent_gain = round(100 * (nb_fuzzy_all - nb_exact_all) / nb_exact_all, 1)
+        phrase = f"L'utilisation du fuzzy+vector permet d'augmenter le nombre de correspondances multi-sources de {percent_gain}% par rapport au matching exact."
+        ax.text(0.5, -0.15, phrase, ha='center', va='center', fontsize=11, transform=ax.transAxes)
+        plt.tight_layout()
+        pdf.savefig(fig)
+        plt.close(fig)
+
     print(f"\nPDF généré : {pdf_path}")
+    print("\nINTERPRÉTATION :")
+    print(f"- Matching exact (toutes sources) : {nb_exact_all} produits présents dans toutes les sources avec le même nom.")
+    print(f"- Fuzzy+vector (toutes sources) : {nb_fuzzy_all} produits ont un lien vers toutes les autres sources (similaires, pas forcément nom identique).")
+    print(f"- Matching exact (hors greenpeace) : {nb_exact_no_gp} produits présents dans toutes les sources hors greenpeace avec le même nom.")
+    print(f"- Fuzzy+vector (hors greenpeace) : {nb_fuzzy_no_gp} produits ont un lien vers toutes les autres sources hors greenpeace.")
+    print("\nCela permet de voir l'apport du fuzzy+vector par rapport au matching exact, et l'effet de la source greenpeace sur la couverture.")
 
 if __name__ == '__main__':
     analyse_product_vector_overlap()

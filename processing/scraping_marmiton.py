@@ -15,7 +15,9 @@ base_url = "https://www.marmiton.org/recettes/index/categorie/"
 def scrapes_recipe_list():
     """
     Scrape la liste des recettes depuis Marmiton.
-    Retourne une liste de dictionnaires avec titres et liens.
+    
+    Returns:
+        list: Liste de dictionnaires contenant les titres et liens des recettes.
     """
     recipes = []
     for recipe_type in recipes_types:
@@ -50,7 +52,12 @@ def scrapes_recipe_list():
 def extract_schemaorg_recipe(url):
     """
     Extrait les données recette d'une URL Marmiton via schema.org JSON-LD.
-    Retourne un dictionnaire recette ou None si échec.
+    
+    Args:
+        url (str): URL de la recette Marmiton.
+    
+    Returns:
+        dict: Dictionnaire contenant les données de la recette, ou None si non trouvé.
     """
     try:
         response = requests.get(url, timeout=10)
@@ -77,6 +84,12 @@ def extract_schemaorg_recipe(url):
 def insert_recipes(recipes):
     """
     Insère les recettes dans MongoDB.
+    
+    Args:
+        recipes (list): Liste de dictionnaires contenant les recettes à insérer.
+        
+    Returns:
+        None
     """
     try:
         client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
@@ -98,6 +111,12 @@ def insert_recipes(recipes):
 def remove_objectid(data):
     """
     Retire les champs _id des objets MongoDB (pour export propre).
+    
+    Args:
+        data (dict or list): Dictionnaire ou liste de données MongoDB.
+    
+    Returns:
+        dict or list: Données sans les champs _id.
     """
     if isinstance(data, dict):
         return {k: remove_objectid(v) for k, v in data.items() if k != "_id"}
@@ -109,7 +128,9 @@ def remove_objectid(data):
 def extract_all_recipes():
     """
     Extrait toutes les recettes Marmiton et les insère dans MongoDB.
-    Retourne une liste de recettes (titres, liens, détails).
+    
+    Returns:
+        list: Liste de dictionnaires contenant les recettes extraites.
     """
     start_time = time.time()
     try:

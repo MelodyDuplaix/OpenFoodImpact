@@ -9,6 +9,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processing.utils import vectorize_name, normalize_name, get_db_connection, safe_execute
 
 def extraire_ingredients_mongo():
+    """
+    Extrait les ingrédients des recettes stockées dans MongoDB et les normalise.
+
+    Returns:
+        pd.DataFrame: DataFrame contenant les ingrédients extraits et normalisés.
+    """
     client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
     db = client["OpenFoodImpact"]
     collection = db["recipes"]
@@ -27,6 +33,14 @@ def extraire_ingredients_mongo():
     return df
 
 def insert_ingredients_to_pgvector(df):
+    """
+    Insère les ingrédients normalisés dans la table product_vector de PostgreSQL.
+    
+    Args:
+        df (pd.DataFrame): DataFrame contenant les ingrédients à insérer.
+    Returns:
+        None
+    """
     conn = get_db_connection()
     if conn is None:
         print("Erreur : connexion à la base Postgres impossible pour l'insertion des ingrédients.")
@@ -47,6 +61,9 @@ def insert_ingredients_to_pgvector(df):
     conn.close()
 
 def update_recipes_with_normalized_ingredients():
+    """
+    Met à jour les recettes dans MongoDB en ajoutant une liste d'ingrédients normalisés.
+    """
     client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
     db = client["OpenFoodImpact"]
     collection = db["recipes"]
