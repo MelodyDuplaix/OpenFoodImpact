@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from jose import jwt
 from fastapi import HTTPException
 from typing import Optional
+from pymongo import MongoClient
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -62,3 +63,13 @@ def decode_access_token(token: str):
         return payload
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def get_mongodb_connection():
+    """Get a MongoDB connection using environment variables."""
+    try:
+        client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
+        return client
+    except Exception as e:
+        print(f"Error connecting to MongoDB: {e}")
+        return None

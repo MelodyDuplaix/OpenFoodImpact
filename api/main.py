@@ -12,7 +12,7 @@ from pydantic import BaseModel
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.db import get_user_by_username, create_user, verify_password, create_access_token
 
-user_router = APIRouter(prefix="/api/v1/user", tags=["User"])
+user_router = APIRouter(prefix="/api/user", tags=["User"])
 
 class UserAuthRequest(BaseModel):
     username: str
@@ -29,7 +29,6 @@ async def register(body: UserAuthRequest):
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": "Username already exists"})
     result = create_user(username, password)
     if result:
-        # Génère un JWT à la création
         token = create_access_token({"sub": username, "user_id": result["user_id"]})
         return {"user_id": result["user_id"], "username": username, "access_token": token, "token_type": "bearer", "message": "Registration successful"}
     return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"detail": "Registration failed"})
@@ -48,24 +47,23 @@ async def login(body: UserAuthRequest):
 
 app = FastAPI(
     title="DataFoodImpact API",
-    description="API pour la gestion des recettes, ingrédients, utilisateurs, etc.",
+    description="API for managing recipes and products, with their nutritional and environmental information.",
     version="1.0.0",
     openapi_tags=[
-        {"name": "Public", "description": "Routes publiques"},
-        {"name": "Secure", "description": "Routes sécurisées nécessitant une authentification"},
-        {"name": "User", "description": "Gestion des utilisateurs"}
+        {"name": "Public", "description": "Public routes"},
+        {"name": "Secure", "description": "Secured routes only accessible to authenticated users"},
+        {"name": "User", "description": "User management routes"}
     ]
 )
 
-# Register only subroutes in Swagger, not the root /public or /secure
 app.include_router(
     public.router,
-    prefix="/api/v1/public",
+    prefix="/api/public",
     tags=["Public"]
 )
 app.include_router(
     secure.router,
-    prefix="/api/v1/secure",
+    prefix="/api/secure",
     dependencies=[Depends(get_user)],
     tags=["Secure"]
 )

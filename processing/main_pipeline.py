@@ -9,6 +9,7 @@ from processing.agribalyse_api import get_agribalyse_data, insert_agribalyse_dat
 from processing.openfoodfacts_script import load_openfoodfacts_chunk_to_db, etl_openfoodfacts
 from processing.scraping_greenpeace import scrape_greenpeace_calendar, insert_season_data_to_db
 from processing.scraping_marmiton import extract_all_recipes
+from processing.clean_recipes_times import convert_recipe_times
 import pandas as pd
 import psycopg2
 import pymongo
@@ -181,6 +182,9 @@ def main():
                 ingredients_nettoyes = extraire_ingredients_mongo()
                 insert_ingredients_to_pgvector(ingredients_nettoyes)
                 update_recipes_with_normalized_ingredients()
+                logging.info('Conversion des temps de recettes...')
+                convert_recipe_times()
+                logging.info('Conversion des temps de recettes terminée.')
                 logging.info('Ingrédients Marmiton insérés et recettes mises à jour.')
             except Exception as e:
                 logging.error(f'Erreur lors du nettoyage/insertion des ingrédients Marmiton : {e}')
