@@ -21,10 +21,14 @@ def init_db():
         source VARCHAR(32) NOT NULL,
         code_source TEXT,
         UNIQUE (name, source)
-    );''')
+    );''') # type: ignore
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_name ON product_vector (name);")
+    # Index GIN pour la recherche de similarité textuelle (pg_trgm)
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_gin_product_vector_name ON product_vector USING gin (name gin_trgm_ops);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_source ON product_vector (source);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_code_source ON product_vector (code_source);")
+    # Index HNSW pour la recherche de similarité vectorielle (pgvector) - cosine distance
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_hnsw_product_vector_name_vector ON product_vector USING hnsw (name_vector vector_cosine_ops);")
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS agribalyse (
         id SERIAL PRIMARY KEY,
@@ -59,9 +63,10 @@ def init_db():
         rayonnements_ionisants FLOAT,
         eutrophisation_eaux_douces FLOAT,
         changement_climatique_fossile FLOAT
-    );''')
+    );''') # type: ignore
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_code_agb ON agribalyse (code_agb);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_code_ciqual ON agribalyse (code_ciqual);")
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_agribalyse_product_vector_id ON agribalyse (product_vector_id);")
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS openfoodfacts (
         id SERIAL PRIMARY KEY,
@@ -90,15 +95,17 @@ def init_db():
         ingredients_analysis_tags TEXT,
         additives_tags TEXT,
         sodium_100g FLOAT
-    );''')
+    );''') # type: ignore
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_code ON openfoodfacts (code);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_product_name ON openfoodfacts (product_name);")
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_openfoodfacts_product_vector_id ON openfoodfacts (product_vector_id);")
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS greenpeace_season (
         id SERIAL PRIMARY KEY,
         product_vector_id INTEGER REFERENCES product_vector(id),
         month TEXT
-    );''')
+    );''') # type: ignore
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_greenpeace_season_product_vector_id ON greenpeace_season (product_vector_id);")
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -106,7 +113,7 @@ def init_db():
         password TEXT NOT NULL,
         user_level TEXT NOT NULL DEFAULT 'user'
     );''')
-    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);")
+    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);") # type: ignore
     conn.commit()
     cur.close()
     conn.close()

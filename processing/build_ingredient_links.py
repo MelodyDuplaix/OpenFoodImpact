@@ -1,5 +1,5 @@
 import psycopg2
-from ingredient_similarity import find_similar_ingredients
+from processing.ingredient_similarity import find_similar_ingredients
 
 def create_ingredient_link_table(conn):
     """
@@ -22,6 +22,13 @@ def create_ingredient_link_table(conn):
             score FLOAT
         );
     """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_id_source ON ingredient_link (id_source);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_id_linked ON ingredient_link (id_linked);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_source_text ON ingredient_link (source);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_linked_source ON ingredient_link (linked_source);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_score ON ingredient_link (score DESC);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_id_source_linked_source_score ON ingredient_link (id_source, linked_source, score DESC);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_id_linked_source_text_score ON ingredient_link (id_linked, source, score DESC);")
     conn.commit()
     cur.close()
 
