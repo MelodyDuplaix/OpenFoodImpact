@@ -14,8 +14,8 @@ class SortCriteria(str, Enum):
     SCORE = "score"
 
 class IngredientMatchType(str, Enum):
-    ALL = "all"  # La recette doit contenir TOUS les ingrédients spécifiés
-    ANY = "any"  # La recette doit contenir AU MOINS UN des ingrédients spécifiés
+    ALL = "all"
+    ANY = "any"
 
 
 def build_recipe_query_conditions(
@@ -81,6 +81,6 @@ def get_recipe_sort_criteria(sort_by: SortCriteria, text_search: Optional[str]) 
     """Détermine les critères de tri pour la requête MongoDB."""
     if sort_by == SortCriteria.TOTAL_TIME:
         return [("totalTime", 1)]
-    elif sort_by == SortCriteria.SCORE and text_search: # textScore ne fonctionne que si $text est dans la requête
+    elif sort_by == SortCriteria.SCORE and text_search:
         return [("score", {"$meta": "textScore"})]
     return None

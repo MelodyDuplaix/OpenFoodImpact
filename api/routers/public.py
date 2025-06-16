@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import os
 from dotenv import load_dotenv
 import sys
@@ -7,8 +7,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from processing.utils import normalize_name, vectorize_name
 from api.db import get_mongodb_connection
-from api.services.query_helper import build_recipe_query_conditions, get_recipe_sort_criteria, IngredientMatchType, SortCriteria # Pour get_recipes
-from api.services.product_query_helper import _get_product_vector_ids_by_name, _get_linked_product_vector_ids, _fetch_product_details, _calculate_similarity_to_search_term, _fetch_recipes_for_ingredient, get_pg_connection, get_mongo_client_connection
+from api.services.query_helper import build_recipe_query_conditions, get_recipe_sort_criteria, IngredientMatchType, SortCriteria
+from api.services.product_query_helper import _get_product_vector_ids_by_name, _get_linked_product_vector_ids, _fetch_recipes_for_ingredient, get_pg_connection, get_mongo_client_connection, _get_processed_products, _aggregate_product_details, get_enriched_recipes_details
 
 load_dotenv()
 
@@ -55,8 +55,11 @@ async def get_recipes(
     category: Optional[str] = Query(None, description="Recipe category (entree, plat-principal, dessert, boissons)"),
     total_time_max: Optional[int] = Query(None, description="Maximum total time in minutes"),
     sort_by: SortCriteria = Query(SortCriteria.SCORE, description="Sorting criteria"),
-    limit: int = Query(20, description="Number of recipes to return"),
-    skip: int = Query(0, description="Number of recipes to skip")
+    limit: int = Query(20, ge=1, description="Number of recipes to return"),
+    skip: int = Query(0, ge=0, description="Number of recipes to skip"),
+    include_details: bool = Query(False, description="Include aggregated nutritional and environmental details for each recipe. This can significantly increase response time."),
+    min_linked_similarity_score_for_details: float = Query(0.60, ge=0, le=1, description="When including details: minimum similarity score for linked products (0-1)."),
+    min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="When including details: minimum fuzzy similarity for initial ingredient name search (0-1).")
 ):
     """
     Get recipes with optional filtering and sorting parameters.
@@ -71,6 +74,9 @@ async def get_recipes(
         sort_by (SortCriteria): Sorting criteria (total_time or score).
         limit (int): Number of recipes to return (default: 20).
         skip (int): Number of recipes to skip (default: 0).
+        include_details (bool): If True, attempts to fetch and aggregate nutritional and environmental data for ingredients. Defaults to False.
+        min_linked_similarity_score_for_details (float): Used if include_details is True. See /products endpoint for similar parameter.
+        min_initial_name_similarity_for_details (float): Used if include_details is True. See /products endpoint for similar parameter.
 
     Returns:
         dict: A dictionary containing the success status, message, data, and count of recipes.
@@ -78,7 +84,7 @@ async def get_recipes(
     client = get_mongodb_connection()
     if not client:
         return {"error": "Failed to connect to MongoDB"}
-    try:
+    try: # MongoDB operations
         db = client["OpenFoodImpact"]
         collection = db["recipes"]
 
@@ -96,20 +102,47 @@ async def get_recipes(
         if text_search:
             projection = {"score": {"$meta": "textScore"}}
 
+        total_recipes_count = collection.count_documents(mongo_query)
+
         cursor = collection.find(mongo_query, projection)
 
         if sort_criteria_list:
             cursor = cursor.sort(sort_criteria_list)
 
         recipes = list(cursor.skip(skip).limit(limit))
+        
         for recipe in recipes:
             if "_id" in recipe:
                 del recipe["_id"]
+
+        if include_details and recipes:
+            pg_conn = None
+            try: # PostgreSQL operations for enriching details
+                pg_conn = get_pg_connection()
+                if pg_conn:
+                    recipes = get_enriched_recipes_details(
+                        pg_conn,
+                        recipes,
+                        min_linked_similarity_score_for_details,
+                        min_initial_name_similarity_for_details
+                    )
+                else:
+                    for r_item in recipes: r_item["aggregated_details_error"] = "Could not connect to PostgreSQL for details."
+            except Exception as e_pg:
+                print(f"Error enriching recipes with PostgreSQL details: {e_pg}")
+                for r_item in recipes: r_item["aggregated_details_error"] = f"Error fetching details: {str(e_pg)}"
+            finally:
+                if pg_conn:
+                    pg_conn.close()
+        elif include_details and not recipes:
+            # No recipes found, no need to attempt enrichment
+            pass
+
         return {
             "success": True,
             "message": "Recipes retrieved successfully",
             "data": recipes,
-            "count": len(recipes)
+            "count": total_recipes_count
         }
     except Exception as e:
         return {
@@ -121,18 +154,53 @@ async def get_recipes(
     finally:
         client.close()
 
-@router.get("/recipe/{recipe_id}")
-async def get_recipe(recipe_id: int):
-    pass
-
 @router.get(
     "/products",
     summary="Retrieve product information and associated recipes",
     description="Get product details from various sources linked by similarity, and associated recipes, based on an ingredient name search.",
-    response_description="Product details from all available sources and a list of recipes containing the ingredient."
+    response_description="Product details from all available sources and a list of recipes containing the ingredient.",
+    responses={
+        200: {
+            "description": "Successfully retrieved product information and associated recipes.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "Product information and associated recipes retrieved successfully.",
+                        "data": {
+                            "details": {},
+                            "products": [
+                                {
+                                    "id": 1,
+                                    "name": "Product Name",
+                                    "source": "source_name",
+                                    "code_source": "code",
+                                    "score_to_search": 0.85
+                                }
+                            ],
+                            "recipes": [
+                                {
+                                    "title": "Recipe Title",
+                                    "link": "https://example.com/recipe",
+                                    "category": "entree",
+                                    "totalTime": "45 minutes",
+                                    "recipeIngredient": ["ingredient1", "ingredient2"],
+                                    "recipeInstructions": ["instruction1", "instruction2"],
+                                    "score": 1.0
+                                }
+                            ]
+                        },
+                        "count": 1
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request parameters."},
+        500: {"description": "Failed to connect to databases or other server error."}
+    }
 )
 async def get_products(
-    name_search: str = Query(..., description="Ingredient name to search for (required)."), # Rendu obligatoire
+    name_search: str = Query(..., description="Ingredient name to search for (required)."),
     min_similarity_score: float = Query(0.65, ge=0, le=1, description="Minimum similarity score for linked products (from ingredient_link table, 0 to 1)"),
     min_name_similarity: float = Query(0.3, ge=0, le=1, description="Minimum fuzzy similarity score for initial name search (pg_trgm similarity, 0 to 1)"),
     limit: int = Query(20, ge=1, description="Number of products to return"),
@@ -151,82 +219,35 @@ async def get_products(
             return {"success": False, "message": "Failed to connect to PostgreSQL", "data": None, "count": 0}
 
         normalized_search_name = normalize_name(name_search)
-        search_vector = vectorize_name(normalized_search_name) # Nécessaire pour _calculate_similarity_to_search_term
+        search_vector = vectorize_name(normalized_search_name)
 
         initial_pv_ids = _get_product_vector_ids_by_name(pg_conn, normalized_search_name, min_name_similarity)
 
         if not initial_pv_ids:
             return {"success": True, "message": "No initial product found for the given name.", "data": {"products": [], "recipes": []}, "count": 0, "recipe_count": 0}
 
-        # Récupérer les meilleurs liens pour chaque produit initial trouvé
-        # best_links_map est un dict: {initial_pv_id: {linked_source: {id: ..., name: ..., score: ...}}}
         best_links_map = _get_linked_product_vector_ids(pg_conn, initial_pv_ids, min_similarity_score)
 
-        # Collecter tous les IDs uniques (initiaux + meilleurs liens) pour récupérer leurs détails
         all_unique_pv_ids_to_fetch = set(initial_pv_ids)
         for initial_id in best_links_map:
             for linked_source_data in best_links_map[initial_id].values():
                 all_unique_pv_ids_to_fetch.add(linked_source_data['id'])
 
-        if not all_unique_pv_ids_to_fetch:
-             products_with_details = [] # Devrait être couvert par le check initial_pv_ids, mais par sécurité
-        else:
-            products_with_details = _fetch_product_details(pg_conn, all_unique_pv_ids_to_fetch)
+        final_products_list = _get_processed_products(
+            pg_conn,
+            all_unique_pv_ids_to_fetch,
+            normalized_search_name,
+            search_vector
+        )
 
-        # Calculer le score de similarité par rapport au terme de recherche pour chaque produit
-        for product in products_with_details:
-            product['score_to_search'] = _calculate_similarity_to_search_term(
-                pg_conn, product['id'], normalized_search_name, search_vector
-            )
-        
-        # Filtrer pour ne garder que le meilleur produit par source, basé sur score_to_search
-        best_product_per_source: Dict[str, Any] = {}
-        # Trier d'abord par score pour faciliter la sélection du meilleur
-        products_with_details.sort(key=lambda x: (x.get('source'), x.get('score_to_search', 0.0)), reverse=True)
-
-        for product in products_with_details:
-            source = product['source']
-            current_score = product.get('score_to_search', 0.0)
-            if source not in best_product_per_source or current_score > best_product_per_source[source].get('score_to_search', 0.0):
-                best_product_per_source[source] = product
-        
-        # La liste finale des produits uniques par source, les plus pertinents
-        final_products_list = list(best_product_per_source.values())
-        # Trier la liste finale globalement par score_to_search
-        final_products_list.sort(key=lambda x: x.get('score_to_search', 0.0), reverse=True)
-
-        # Récupérer les recettes associées
         associated_recipes = []
         if mongo_client:
-            associated_recipes = _fetch_recipes_for_ingredient(mongo_client, normalized_search_name, limit=10, skip=0) # Pagination simple pour les recettes
-
-        # Construire l'objet 'details' global en fusionnant les informations de tous les produits finaux
-        # On ne prend que les champs qui ne sont pas déjà dans product_vector (id, name, source, code_source, score_to_search)
-        # et qui ne sont pas des listes/objets complexes pour cet objet 'details' simplifié.
-        # Les champs spécifiques à chaque source (identifiants primaires, noms sources) sont exclus ici
-        # car ils sont déjà représentés dans la liste "products".
-        global_details_aggregator = {}
-        # Définir les clés à exclure de global_details_aggregator.
-        # Celles-ci sont soit des champs de base de product_vector (déjà dans la liste 'products'),
-        # soit des noms/codes spécifiques à la source qui sont aussi représentés dans la liste 'products'.
-        excluded_keys_for_global_details = [
-            'id', 'name', 'source', 'code_source', 'score_to_search', 'name_vector', # Champs de base ou calculés
-            'product_name', 'code', # Champs spécifiques OpenFoodFacts (code est souvent redondant avec code_source)
-            'nom_produit_francais', 'code_agb', 'code_ciqual', 'lci_name' # Champs spécifiques Agribalyse
-        ]
-
-        for product in final_products_list:
-            for key, value in product.items():
-                if key not in excluded_keys_for_global_details and value is not None:
-                    # Gérer les conflits simples en préfixant par la source si la clé existe déjà et a une valeur différente
-                    if key in global_details_aggregator and global_details_aggregator[key] != value:
-                        global_details_aggregator[f"{product['source']}_{key}"] = value
-                    elif key not in global_details_aggregator:
-                        global_details_aggregator[key] = value
+            associated_recipes = _fetch_recipes_for_ingredient(mongo_client, normalized_search_name, limit=10, skip=0)
+        
+        global_details_aggregator = _aggregate_product_details(final_products_list)
 
         total_product_count = len(final_products_list)
-        
-        # Créer la liste paginée de produits avec uniquement les champs de base
+
         products_for_response = []
         for product_detail in final_products_list[skip : skip + limit]:
             products_for_response.append({
@@ -241,18 +262,13 @@ async def get_products(
             "success": True,
             "message": "Product information and associated recipes retrieved successfully.",
             "data": {"details": global_details_aggregator, "products": products_for_response, "recipes": associated_recipes},
-            "count": total_product_count, # Nombre total de produits uniques par source avant pagination
-            "recipe_count": len(associated_recipes)
+            "count": len(associated_recipes)
         }
     except Exception as e:
-        print(f"Error in /products endpoint: {str(e)}") # Log l'erreur côté serveur
+        print(f"Error in /products endpoint: {str(e)}")
         return {"success": False, "message": f"An error occurred: {str(e)}", "data": None, "count": 0}
     finally:
         if pg_conn:
             pg_conn.close()
         if mongo_client:
             mongo_client.close()
-
-@router.get("/product/{product_id}")
-async def get_product(product_id: int):
-    pass
