@@ -11,9 +11,39 @@ load_dotenv()
 
 router = APIRouter()
 
-
-
-@router.get("/recipes")
+@router.get(
+    "/recipes",
+    summary="Retrieve a list of recipes",
+    description="Get recipes with optional filtering and sorting parameters.",
+    response_description="A list of recipes matching the given criteria.",
+    responses={
+        200: {
+            "description": "Successfully retrieved recipes.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "Recipes retrieved successfully",
+                        "data": [
+                            {
+                                "title": "Recipe Title",
+                                "link": "https://example.com/recipe",
+                                "category": "entree",
+                                "totalTime": "45 minutes",
+                                "recipeIngredient": ["ingredient1", "ingredient2"],
+                                "recipeInstructions": ["instruction1", "instruction2"],
+                                "score": 1.0
+                            }
+                        ],
+                        "count": 1
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid request parameters."},
+        500: {"description": "Failed to connect to MongoDB or other server error."}
+    }
+)
 async def get_recipes(
     text_search: Optional[str] = Query(None, description="Text to search in title, name, keywords, and description"),
     ingredients: Optional[List[str]] = Query(None, description="List of ingredients to search for"),
@@ -26,21 +56,21 @@ async def get_recipes(
     skip: int = Query(0, description="Number of recipes to skip")
 ):
     """
-    Get recipes with optional filtering parameters.
-    
+    Get recipes with optional filtering and sorting parameters.
+
     Args:
-        text_search (str, optional): Text to search in title, name, keywords, and description
-        ingredients (List[str], optional): List of ingredients to search for
-        ingredient_match_type (IngredientMatchType, optional): 'all' to match all ingredients, 'any' to match at least one. Defaults to 'all'.
-        excluded_ingredients (List[str], optional): List of ingredients to exclude
-        category (str, optional): Recipe category
-        total_time_max (int, optional): Maximum total time in minutes
-        sort_by (SortCriteria): Sorting criteria (total_time or score)
-        limit (int, optional): Number of recipes to return (default: 20)
-        skip (int, optional): Number of recipes to skip (default: 0)
-        
+        text_search (Optional[str]): Text to search in title, name, keywords, and description.
+        ingredients (Optional[List[str]]): List of ingredients to search for.
+        ingredient_match_type (IngredientMatchType): 'all' to match all ingredients, 'any' to match at least one. Defaults to 'all'.
+        excluded_ingredients (Optional[List[str]]): List of ingredients to exclude.
+        category (Optional[str]): Recipe category.
+        total_time_max (Optional[int]): Maximum total time in minutes.
+        sort_by (SortCriteria): Sorting criteria (total_time or score).
+        limit (int): Number of recipes to return (default: 20).
+        skip (int): Number of recipes to skip (default: 0).
+
     Returns:
-        List[dict]: List of recipes matching the given criteria.
+        dict: A dictionary containing the success status, message, data, and count of recipes.
     """
     client = get_mongodb_connection()
     if not client:
@@ -57,24 +87,24 @@ async def get_recipes(
         mongo_query = {}
         if query_conditions:
             mongo_query["$and"] = query_conditions
-            
+
         sort_criteria_list = get_recipe_sort_criteria(sort_by, text_search)
         projection = None
-        if text_search: 
+        if text_search:
             projection = {"score": {"$meta": "textScore"}}
 
         cursor = collection.find(mongo_query, projection)
-        
+
         if sort_criteria_list:
             cursor = cursor.sort(sort_criteria_list)
-        
+
         recipes = list(cursor.skip(skip).limit(limit))
         for recipe in recipes:
             if "_id" in recipe:
                 del recipe["_id"]
         return {
             "success": True,
-            "message":  "Recipes retrieved successfully",
+            "message": "Recipes retrieved successfully",
             "data": recipes,
             "count": len(recipes)
         }

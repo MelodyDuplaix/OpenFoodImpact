@@ -3,7 +3,6 @@ import re
 import time
 import os
 import sys
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processing.utils import get_db_connection
 from processing.build_ingredient_links import create_ingredient_link_table, fill_ingredient_links
