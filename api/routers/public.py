@@ -15,10 +15,15 @@ class SortCriteria(str, Enum):
     TOTAL_TIME = "total_time"
     SCORE = "score"
 
+class IngredientMatchType(str, Enum):
+    ALL = "all"  # La recette doit contenir TOUS les ingrédients spécifiés
+    ANY = "any"  # La recette doit contenir AU MOINS UN des ingrédients spécifiés
+
 @router.get("/recipes")
 async def get_recipes(
     text_search: Optional[str] = Query(None, description="Text to search in title, name, keywords, and description"),
     ingredients: Optional[List[str]] = Query(None, description="List of ingredients to search for"),
+    ingredient_match_type: IngredientMatchType = Query(IngredientMatchType.ALL, description="How to match ingredients: 'all' (default) or 'any'"),
     excluded_ingredients: Optional[List[str]] = Query(None, description="List of ingredients to exclude"),
     category: Optional[str] = Query(None, description="Recipe category (entree, plat-principal, dessert, boissons)"),
     total_time_max: Optional[int] = Query(None, description="Maximum total time in minutes"),
@@ -32,6 +37,7 @@ async def get_recipes(
     Args:
         text_search (str, optional): Text to search in title, name, keywords, and description
         ingredients (List[str], optional): List of ingredients to search for
+        ingredient_match_type (IngredientMatchType, optional): 'all' to match all ingredients, 'any' to match at least one. Defaults to 'all'.
         excluded_ingredients (List[str], optional): List of ingredients to exclude
         category (str, optional): Recipe category
         total_time_max (int, optional): Maximum total time in minutes
@@ -58,22 +64,26 @@ async def get_recipes(
             all_conditions.append({"category": {"$regex": f".*{category}.*", "$options": "i"}})
         
         if ingredients:
-            normalized_ingredients = [normalize_name(ing) for ing in ingredients]
-            for ing_raw, ing_norm in zip(ingredients, normalized_ingredients):
-                all_conditions.append({"$or": [
+            normalized_ingredients_list = [normalize_name(ing) for ing in ingredients]
+            individual_ingredient_conditions = []
+            for ing_raw, ing_norm in zip(ingredients, normalized_ingredients_list):
+                individual_ingredient_conditions.append({"$or": [
                     {"recipeIngredient": {"$regex": f".*{re.escape(ing_raw)}.*", "$options": "i"}},
-                    {"normalized_ingredients": ing_norm} # Matches if ing_norm is an element of the array
+                    {"normalized_ingredients": ing_norm}
                 ]})
-                
-        if excluded_ingredients: # Ingredients to EXCLUDE
+            
+            if ingredient_match_type == IngredientMatchType.ALL:
+                all_conditions.extend(individual_ingredient_conditions) 
+            elif ingredient_match_type == IngredientMatchType.ANY and individual_ingredient_conditions:
+                all_conditions.append({"$or": individual_ingredient_conditions})
+
+        if excluded_ingredients:
             normalized_excluded_ingredients = [normalize_name(ex_ing) for ex_ing in excluded_ingredients]
             for ex_ing_raw, ex_ing_norm in zip(excluded_ingredients, normalized_excluded_ingredients):
-                # For each excluded ingredient, the recipe must NOT contain it in either field.
-                # $nor ensures the document fails both conditions (i.e., is not matched by either).
                 all_conditions.append({
                     "$nor": [
                         {"recipeIngredient": {"$regex": f".*{re.escape(ex_ing_raw)}.*", "$options": "i"}},
-                        {"normalized_ingredients": ex_ing_norm} # Matches if ex_ing_norm is an element of the array
+                        {"normalized_ingredients": ex_ing_norm}
                     ]
                 })
 
