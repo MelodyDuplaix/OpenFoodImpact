@@ -209,6 +209,42 @@ def main():
                 logging.info('Table ingredient_link créée et remplie avec succès.')
             except Exception as e:
                 logging.error(f'Erreur lors de la création/remplissage de la table ingredient_link : {e}')
+                
+        logging.info("Vérification et création de l'index texte pour MongoDB recipes...")
+        mongo_client = None
+        try:
+            mongo_client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
+            db = mongo_client["OpenFoodImpact"]
+            collection = db["recipes"]
+            fields_for_text_index = [
+                ("title", pymongo.TEXT),
+                ("keywords", pymongo.TEXT),
+                ("description", pymongo.TEXT)
+            ]
+            text_index_name = "recipes_content_text_search"
+
+            existing_indexes = collection.index_information()
+            if text_index_name in existing_indexes:
+                current_key = sorted(existing_indexes[text_index_name]['key'])
+                expected_key = sorted([(field, pymongo.TEXT) for field, _ in fields_for_text_index])
+                if current_key == expected_key:
+                    logging.info(f"L'index texte '{text_index_name}' existe déjà avec la bonne configuration.")
+                else:
+                    logging.warning(f"L'index texte '{text_index_name}' existe avec une configuration incorrecte. Il va être recréé.")
+                    collection.drop_index(text_index_name)
+                    logging.info(f"Ancien index '{text_index_name}' supprimé.")
+                    collection.create_index(fields_for_text_index, name=text_index_name)
+                    logging.info(f"Nouvel index texte '{text_index_name}' créé.")
+            else:
+                logging.info(f"Création de l'index texte '{text_index_name}' sur les champs: title, keywords, description.")
+                collection.create_index(fields_for_text_index, name=text_index_name)
+                logging.info(f"Index texte '{text_index_name}' créé avec succès.")
+        except Exception as e_index:
+            logging.error(f"Une erreur est survenue lors de la gestion de l'index texte MongoDB: {e_index}")
+        finally:
+            if mongo_client:
+                mongo_client.close()
+            
 
         logging.info('Pipeline terminé avec succès.')
     except Exception as e:
