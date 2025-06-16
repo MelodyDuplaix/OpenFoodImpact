@@ -6,18 +6,12 @@ from processing.utils import normalize_name
 import re
 from api.db import get_mongodb_connection
 from enum import Enum
-
+from api.services.query_helper import build_recipe_query_conditions, get_recipe_sort_criteria, IngredientMatchType, SortCriteria
 load_dotenv()
 
 router = APIRouter()
 
-class SortCriteria(str, Enum):
-    TOTAL_TIME = "total_time"
-    SCORE = "score"
 
-class IngredientMatchType(str, Enum):
-    ALL = "all"  # La recette doit contenir TOUS les ingrédients spécifiés
-    ANY = "any"  # La recette doit contenir AU MOINS UN des ingrédients spécifiés
 
 @router.get("/recipes")
 async def get_recipes(
@@ -54,59 +48,25 @@ async def get_recipes(
     try:
         db = client["OpenFoodImpact"]
         collection = db["recipes"]
-        query = {}
-        all_conditions = []
-        
-        if total_time_max is not None:
-            all_conditions.append({"totalTime": {"$lte": total_time_max}})
-        
-        if category:
-            all_conditions.append({"category": {"$regex": f".*{category}.*", "$options": "i"}})
-        
-        if ingredients:
-            normalized_ingredients_list = [normalize_name(ing) for ing in ingredients]
-            individual_ingredient_conditions = []
-            for ing_raw, ing_norm in zip(ingredients, normalized_ingredients_list):
-                individual_ingredient_conditions.append({"$or": [
-                    {"recipeIngredient": {"$regex": f".*{re.escape(ing_raw)}.*", "$options": "i"}},
-                    {"normalized_ingredients": ing_norm}
-                ]})
+
+        query_conditions = build_recipe_query_conditions(
+            text_search, ingredients, ingredient_match_type,
+            excluded_ingredients, category, total_time_max
+        )
+
+        mongo_query = {}
+        if query_conditions:
+            mongo_query["$and"] = query_conditions
             
-            if ingredient_match_type == IngredientMatchType.ALL:
-                all_conditions.extend(individual_ingredient_conditions) 
-            elif ingredient_match_type == IngredientMatchType.ANY and individual_ingredient_conditions:
-                all_conditions.append({"$or": individual_ingredient_conditions})
+        sort_criteria_list = get_recipe_sort_criteria(sort_by, text_search)
+        projection = None
+        if text_search: 
+            projection = {"score": {"$meta": "textScore"}}
 
-        if excluded_ingredients:
-            normalized_excluded_ingredients = [normalize_name(ex_ing) for ex_ing in excluded_ingredients]
-            for ex_ing_raw, ex_ing_norm in zip(excluded_ingredients, normalized_excluded_ingredients):
-                all_conditions.append({
-                    "$nor": [
-                        {"recipeIngredient": {"$regex": f".*{re.escape(ex_ing_raw)}.*", "$options": "i"}},
-                        {"normalized_ingredients": ex_ing_norm}
-                    ]
-                })
-
+        cursor = collection.find(mongo_query, projection)
         
-        if text_search:
-            all_conditions.append({"$text": {"$search": text_search}})
-
-        if all_conditions:
-            query["$and"] = all_conditions
-            
-        if sort_by == SortCriteria.TOTAL_TIME:
-            sort_criteria = [("totalTime", 1)]
-        elif sort_by == SortCriteria.SCORE and text_search:
-            sort_criteria = [("score", {"$meta": "textScore"})]
-        else:
-            sort_criteria = None
-        if text_search:
-            cursor = collection.find(query, {"score": {"$meta": "textScore"}})
-        else:
-            cursor = collection.find(query)
-        
-        if sort_criteria:
-            cursor = cursor.sort(sort_criteria)
+        if sort_criteria_list:
+            cursor = cursor.sort(sort_criteria_list)
         
         recipes = list(cursor.skip(skip).limit(limit))
         for recipe in recipes:
