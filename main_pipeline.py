@@ -3,6 +3,7 @@ import re
 import time
 import os
 import sys
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processing.utils import get_db_connection
 from processing.build_ingredient_links import create_ingredient_link_table, fill_ingredient_links
@@ -103,6 +104,28 @@ def is_marmiton_filled():
         logging.warning(f"Impossible de vérifier la base Marmiton (MongoDB) : {e}")
         return False
 
+def are_recipes_parsed():
+    """
+    Vérifie si les recettes dans MongoDB ont été enrichies avec 'parsed_ingredients_details'.
+    Regarde si au moins un document contient ce champ avec une liste non vide.
+
+    Returns:
+        bool: True si au moins une recette est parsée, False sinon.
+    """
+    try:
+        client = pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
+        db = client["OpenFoodImpact"]
+        collection = db["recipes"]
+        # Cherche un document où 'parsed_ingredients_details' existe et n'est pas une liste vide
+        # Si le champ n'existe pas, ou est null, ou est une liste vide, il ne sera pas compté.
+        count = collection.count_documents({"parsed_ingredients_details": {"$exists": True, "$ne": []}})
+        client.close()
+        return count > 0
+    except Exception as e:
+        logging.warning(f"Impossible de vérifier si les recettes sont parsées (MongoDB) : {e}")
+        return False # En cas d'erreur, on considère que ce n'est pas fait pour forcer le traitement.
+
+
 def main():
     """
     Fonction principale du pipeline de traitement des données.
@@ -112,11 +135,17 @@ def main():
     need_agribalyse = not is_source_filled('agribalyse')
     need_openfoodfacts = not is_source_filled('openfoodfacts')
     need_greenpeace = not is_source_filled('greenpeace_season')
-    need_marmiton = not is_marmiton_filled()
+    marmiton_already_scraped = is_marmiton_filled()
+    recipes_need_parsing = not are_recipes_parsed()
     need_users = not is_source_filled('users')
     need_ingredients_link = not is_source_filled('ingredient_link')
 
-    if not (need_agribalyse or need_openfoodfacts or need_greenpeace or need_marmiton or need_users):
+    # Condition pour relancer le traitement Marmiton :
+    # - Soit la collection est vide (scraping initial)
+    # - Soit la collection existe mais les recettes n'ont pas encore 'parsed_ingredients_details'
+    need_marmiton_processing = not marmiton_already_scraped or recipes_need_parsing
+    # On vérifie aussi need_init_db ici
+    if not (need_init_db or need_agribalyse or need_openfoodfacts or need_greenpeace or need_marmiton_processing or need_users or need_ingredients_link):
         logging.info('Toutes les sources (Postgres + MongoDB Marmiton) sont déjà remplies. Arrêt du pipeline.')
         return
     try:
@@ -173,29 +202,44 @@ def main():
         else:
             logging.info('Données Greenpeace déjà présentes, skip.')
 
-        if need_marmiton:
+        if not marmiton_already_scraped: # Si la collection est vide, on scrape
+            start_scrape = time.time()
+            logging.info('Scraping Marmiton (collection vide)...')
+            extract_all_recipes() # Cette fonction insère directement dans MongoDB
+            logging.info(f"Scraping Marmiton terminé en {time.time()-start_scrape:.2f} sec")
+            marmiton_already_scraped = True # Marquer comme scrapé pour la suite
+
+        if marmiton_already_scraped and recipes_need_parsing: # Si scrapé mais pas parsé, ou si on force le parsing
+            # Cette condition signifie que les recettes existent, mais n'ont pas le champ `parsed_ingredients_details`.
+            # On va donc exécuter le parsing et la mise à jour des recettes MongoDB.
+            # On va aussi vérifier si de nouveaux ingrédients Marmiton doivent être ajoutés à product_vector.
             start = time.time()
-            logging.info('Scraping Marmiton...')
-            recipes = extract_all_recipes()
-            logging.info(f"{len(recipes)} recettes extraites et sauvegardées.")
-            logging.info(f"Marmiton traité en {time.time()-start:.2f} sec")
+            logging.info('Traitement des ingrédients Marmiton (parsing, normalisation, et mise à jour product_vector si besoin)...')
             try:
                 from processing.clean_marmiton_ingredients import extraire_ingredients_mongo, insert_ingredients_to_pgvector, update_recipes_with_normalized_ingredients
-                logging.info('Nettoyage et insertion des ingrédients Marmiton dans product_vector...')
-                ingredients_nettoyes = extraire_ingredients_mongo()
-                insert_ingredients_to_pgvector(ingredients_nettoyes)
+                
+                logging.info('Extraction des ingrédients Marmiton pour product_vector (nouveaux/mis à jour)...')
+                df_ingredients_for_pv = extraire_ingredients_mongo() # Ne vectorise que les nouveaux
+                if not df_ingredients_for_pv.empty:
+                    logging.info(f'Insertion/Mise à jour de {len(df_ingredients_for_pv)} ingrédients Marmiton dans product_vector...')
+                    insert_ingredients_to_pgvector(df_ingredients_for_pv)
+                    need_ingredients_link = True # Si product_vector a été modifié, les liens doivent être revus
+                else:
+                    logging.info('Aucun nouvel ingrédient Marmiton à ajouter/mettre à jour dans product_vector.')
+
+                logging.info('Mise à jour des recettes MongoDB avec parsed_ingredients_details...')
                 update_recipes_with_normalized_ingredients()
                 logging.info('Conversion des temps de recettes...')
                 convert_recipe_times()
                 logging.info('Conversion des temps de recettes terminée.')
-                logging.info('Ingrédients Marmiton insérés et recettes mises à jour.')
-            except Exception as e:
-                logging.error(f'Erreur lors du nettoyage/insertion des ingrédients Marmiton : {e}')
-        else:
-            logging.info('Recettes Marmiton déjà extraites en base MongoDB, skip.')
+                logging.info('Ingrédients Marmiton traités et recettes mises à jour avec parsed_ingredients_details.')
+            except Exception: # Capture toutes les exceptions
+                logging.error(f'Erreur lors du nettoyage/insertion des ingrédients Marmiton :', exc_info=True) # Ajout de exc_info=True
+        elif marmiton_already_scraped and not recipes_need_parsing:
+            logging.info('Recettes Marmiton déjà extraites et parsées, skip du traitement Marmiton.')
             
         if need_ingredients_link:
-            # Lancement du script build_ingredient_links.py
+            start_link = time.time()
             logging.info('Création et remplissage de la table ingredient_link...')
             try:
                 conn = get_db_connection()
@@ -205,7 +249,7 @@ def main():
                 create_ingredient_link_table(conn)
                 fill_ingredient_links(conn)
                 conn.close()
-                logging.info('Table ingredient_link créée et remplie avec succès.')
+                logging.info(f"Table ingredient_link créée et remplie avec succès en {time.time()-start_link:.2f} sec.")
             except Exception as e:
                 logging.error(f'Erreur lors de la création/remplissage de la table ingredient_link : {e}')
                 

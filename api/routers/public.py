@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Query
-from typing import Any, Dict, List, Optional
+from fastapi import APIRouter, Query, Path, HTTPException, status
+from typing import Any, Dict, List, Optional # type: ignore
 import os
 from dotenv import load_dotenv
 import sys
+from bson import ObjectId # Add this import
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from processing.utils import normalize_name, vectorize_name
@@ -83,7 +84,7 @@ async def get_recipes(
     """
     client = get_mongodb_connection()
     if not client:
-        return {"error": "Failed to connect to MongoDB"}
+        return {"success": False, "message": "Failed to connect to MongoDB", "data": [], "count": 0}
     try: # MongoDB operations
         db = client["OpenFoodImpact"]
         collection = db["recipes"]
@@ -109,50 +110,152 @@ async def get_recipes(
         if sort_criteria_list:
             cursor = cursor.sort(sort_criteria_list)
 
-        recipes = list(cursor.skip(skip).limit(limit))
-        
-        for recipe in recipes:
-            if "_id" in recipe:
-                del recipe["_id"]
+        recipes_data = list(cursor.skip(skip).limit(limit))
 
-        if include_details and recipes:
+        if include_details and recipes_data:
             pg_conn = None
             try: # PostgreSQL operations for enriching details
                 pg_conn = get_pg_connection()
                 if pg_conn:
-                    recipes = get_enriched_recipes_details(
+                    recipes_data = get_enriched_recipes_details(
                         pg_conn,
-                        recipes,
+                        recipes_data,
                         min_linked_similarity_score_for_details,
                         min_initial_name_similarity_for_details
                     )
                 else:
-                    for r_item in recipes: r_item["aggregated_details_error"] = "Could not connect to PostgreSQL for details."
+                    for r_item in recipes_data: r_item["aggregated_details_error"] = "Could not connect to PostgreSQL for details."
             except Exception as e_pg:
                 print(f"Error enriching recipes with PostgreSQL details: {e_pg}")
-                for r_item in recipes: r_item["aggregated_details_error"] = f"Error fetching details: {str(e_pg)}"
+                for r_item in recipes_data: r_item["aggregated_details_error"] = f"Error fetching details: {str(e_pg)}"
             finally:
                 if pg_conn:
                     pg_conn.close()
-        elif include_details and not recipes:
+        elif include_details and not recipes_data:
             # No recipes found, no need to attempt enrichment
             pass
+
+        # Convert ObjectId to string for JSON serialization
+        for recipe in recipes_data:
+            if "_id" in recipe and isinstance(recipe["_id"], ObjectId):
+                recipe["_id"] = str(recipe["_id"])
 
         return {
             "success": True,
             "message": "Recipes retrieved successfully",
-            "data": recipes,
+            "data": recipes_data,
             "count": total_recipes_count
         }
     except Exception as e:
         return {
             "success": False,
             "message": f"Error retrieving recipes: {str(e)}",
-            "data": [],
-            "count": 0
+            "data": recipes_data,
+            "count": total_recipes_count
         }
     finally:
-        client.close()
+        if client:
+            client.close()
+
+
+@router.get(
+    "/recipes/{recipe_id}",
+    summary="Retrieve a specific recipe by its ID",
+    description="Get detailed information for a single recipe, including aggregated nutritional and environmental details for its ingredients if available.",
+    response_description="The recipe details.",
+    responses={
+        200: {
+            "description": "Successfully retrieved recipe.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "success": True,
+                        "message": "Recipe retrieved successfully",
+                        "data": {
+                            "_id": "60c72b2f9b1e8a3f4c8b4567",
+                            "title": "Delicious Pasta",
+                            "category": "plat-principal",
+                            "recipeIngredient": ["pasta", "tomato sauce", "cheese"],
+                            "parsed_ingredients_details": [
+                                {
+                                    "raw_text": "250g pasta",
+                                    "quantity_str": "250",
+                                    "unit_str": "g",
+                                    "parsed_name": "pasta",
+                                    "quantity_grams": 250,
+                                    "normalized_name_for_matching": "pasta"
+                                }
+                            ],
+                            "aggregated_details": {
+                                "energy_kcal_100g": 350.5,
+                                "changement_climatique": 1.2
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        400: {"description": "Invalid recipe ID format."},
+        404: {"description": "Recipe not found."},
+        500: {"description": "Server error."}
+    }
+)
+async def get_recipe_by_id(
+    recipe_id: str = Path(..., description="The MongoDB ObjectId of the recipe."),
+    min_linked_similarity_score_for_details: float = Query(0.60, ge=0, le=1, description="Minimum similarity score for linked products (0-1) for ingredient details."),
+    min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="Minimum fuzzy similarity for initial ingredient name search (0-1) for ingredient details.")
+):
+    mongo_client = get_mongodb_connection()
+    pg_conn = None
+
+    if not mongo_client:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to connect to MongoDB")
+
+    try:
+        db = mongo_client["OpenFoodImpact"]
+        collection = db["recipes"]
+
+        try:
+            object_id = ObjectId(recipe_id)
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid recipe ID format")
+
+        recipe_data = collection.find_one({"_id": object_id})
+
+        if not recipe_data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+
+        # Convert ObjectId to string for JSON serialization before enrichment
+        if "_id" in recipe_data and isinstance(recipe_data["_id"], ObjectId):
+            recipe_data["_id"] = str(recipe_data["_id"])
+
+        # Enrich with ingredient details
+        try:
+            pg_conn = get_pg_connection()
+            if pg_conn:
+                enriched_list = get_enriched_recipes_details(
+                    pg_conn, [recipe_data.copy()], min_linked_similarity_score_for_details, min_initial_name_similarity_for_details
+                )
+                if enriched_list:
+                    recipe_data = enriched_list[0]
+            else:
+                recipe_data["aggregated_details_error"] = "Could not connect to PostgreSQL for ingredient details."
+        except Exception as e_pg:
+            print(f"Error enriching recipe {recipe_id} with PostgreSQL details: {e_pg}") # For server logs
+            recipe_data["aggregated_details_error"] = f"Error fetching ingredient details: {str(e_pg)}"
+        
+        return {"success": True, "message": "Recipe retrieved successfully", "data": recipe_data}
+
+    except HTTPException: # Re-raise HTTPException
+        raise
+    except Exception as e:
+        print(f"Unexpected error in get_recipe_by_id for {recipe_id}: {e}") # For server logs
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred: {str(e)}")
+    finally:
+        if mongo_client:
+            mongo_client.close()
+        if pg_conn:
+            pg_conn.close()
 
 @router.get(
     "/products",

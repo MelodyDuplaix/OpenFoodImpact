@@ -1,4 +1,6 @@
 import re
+import time
+from typing import Callable
 from fastapi import FastAPI, Depends, Request
 from routers import secure, public
 from auth import get_user
@@ -55,6 +57,15 @@ app = FastAPI(
         {"name": "User", "description": "User management routes"}
     ]
 )
+
+@app.middleware("http")
+async def add_timer_middleware(request: Request, call_next: Callable):
+    start_time = time.time()
+    response = await call_next(request)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    response.headers['X-Execution-Time'] = str(round(elapsed_time, 2))
+    return response
 
 app.include_router(
     public.router,

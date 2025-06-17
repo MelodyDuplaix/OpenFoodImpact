@@ -7,6 +7,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def convert_iso8601_to_minutes(duration):
+    # Vérifier si la durée est déjà un entier (potentiellement déjà en minutes)
+    if isinstance(duration, int):
+        return duration
+    if not isinstance(duration, str): # S'assurer que c'est une chaîne avant d'utiliser re.match
+        return 0 # Ou lever une exception, ou logger une erreur
     match = re.match(r'PT(\d+H)?(\d+M)?', duration)
     if not match:
         return 0

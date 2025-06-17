@@ -6,7 +6,7 @@ from psycopg2.extras import DictCursor # type: ignore
 import pymongo # type: ignore
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'processing'))
 from processing.utils import normalize_name, vectorize_name
-
+from processing.utils import DEFAULT_QUANTITY_GRAMS # Importer la constante
 def get_pg_connection():
     return psycopg2.connect(
         dbname=os.getenv('POSTGRES_DB', 'postgres'),
@@ -321,16 +321,19 @@ def _get_details_for_single_ingredient(
         return {}
 
     ingredient_aggregated_details = _aggregate_product_details(processed_products_for_ingredient)
+    # Ajouter le nom original normalisé pour lequel la recherche a été faite, pour le mapping futur
+    ingredient_aggregated_details["original_normalized_search_name"] = ingredient_name
     return ingredient_aggregated_details
 
 
 def _aggregate_details_for_recipe(
-    ingredient_details_list: List[Dict[str, Any]]
+    ingredient_details_cache: Dict[str, Dict[str, Any]], # Cache des détails par nom normalisé
+    recipe_parsed_ingredients: List[Dict[str, Any]] # Vient de la recette MongoDB, avec qtés parsées
 ) -> Dict[str, Any]:
     """
     Agrège les détails de plusieurs ingrédients pour obtenir les détails globaux d'une recette.
-    Les valeurs nutritionnelles et environnementales sont sommées.
-    'months_in_season' est une intersection des mois disponibles.
+    Les valeurs nutritionnelles et environnementales sont sommées en pondérant par les quantités.
+    'months_in_season' est une intersection/union des mois disponibles.
     """
     recipe_details: Dict[str, Any] = {}
     summable_fields = [
@@ -350,33 +353,64 @@ def _aggregate_details_for_recipe(
         recipe_details[field] = 0.0
 
     all_months_lists: List[List[str]] = []
-    valid_ingredients_count = 0
+    processed_ingredients_with_details_count = 0
+    # total_recipe_weight_g = 0 # Si on veut normaliser par 100g de recette totale
 
-    for ing_details in ingredient_details_list:
-        if not ing_details:
-            continue
-        valid_ingredients_count += 1
-        for field in summable_fields:
-            value = ing_details.get(field)
-            if isinstance(value, (int, float)):
-                recipe_details[field] += value
+    for ing_from_recipe in recipe_parsed_ingredients:
+        # ing_from_recipe est un dict de parse_ingredient_details_fr_en
+        # ex: {"raw_text": "2 pommes", "quantity_str": "2", ..., 
+        #      "parsed_name": "pommes", "quantity_grams": 260, 
+        #      "normalized_name_for_matching": "pomme"}
         
-        if "months_in_season" in ing_details and isinstance(ing_details["months_in_season"], list):
-            all_months_lists.append(ing_details["months_in_season"])
+        normalized_name_key = ing_from_recipe.get("normalized_name_for_matching")
+        if not normalized_name_key:
+            continue
+
+        ing_details_from_cache = ingredient_details_cache.get(normalized_name_key)
+        if not ing_details_from_cache or not isinstance(ing_details_from_cache, dict): # Peut être {}
+            continue
+        
+        processed_ingredients_with_details_count += 1
+        
+        # Utiliser la quantité en grammes parsée, ou une valeur par défaut si non disponible mais que l'ingrédient est listé
+        quantity_grams = ing_from_recipe.get("quantity_grams")
+        if quantity_grams is None: # Si parse_ingredient_details_fr_en n'a pas pu déterminer de grammes
+            # Si une quantity_str existe (ex: "1" pour "1 oignon"), on pourrait utiliser DEFAULT_QUANTITY_GRAMS
+            # Sinon, si pas de quantity_str, on pourrait ignorer ou utiliser un poids très faible.
+            # Pour l'instant, si quantity_grams est None, on utilise DEFAULT_QUANTITY_GRAMS
+            # si l'ingrédient semble avoir une quantité implicite (ex: "sel" vs "1 oignon")
+            # C'est complexe. Simplifions : si quantity_grams est None, on prend DEFAULT_QUANTITY_GRAMS.
+            quantity_grams = DEFAULT_QUANTITY_GRAMS
+
+        # total_recipe_weight_g += quantity_grams
+
+        for field in summable_fields:
+            value_per_100g = ing_details_from_cache.get(field)
+            if isinstance(value_per_100g, (int, float)):
+                recipe_details[field] += (value_per_100g / 100.0) * quantity_grams
+        
+        if "months_in_season" in ing_details_from_cache and isinstance(ing_details_from_cache["months_in_season"], list):
+            all_months_lists.append(ing_details_from_cache["months_in_season"])
 
     if all_months_lists:
         common_months = set(all_months_lists[0])
         for month_list in all_months_lists[1:]:
             common_months.intersection_update(month_list)
-        recipe_details["months_in_season"] = sorted(list(common_months))
-    elif valid_ingredients_count > 0:
+        if common_months:
+            recipe_details["months_in_season"] = sorted(list(common_months))
+        else: # Pas de mois en commun, on prend l'union de tous les mois
+            union_months = set()
+            for month_list in all_months_lists:
+                union_months.update(month_list)
+            recipe_details["months_in_season"] = sorted(list(union_months))
+    elif processed_ingredients_with_details_count > 0:
         recipe_details["months_in_season"] = []
 
     for field in summable_fields:
         if isinstance(recipe_details[field], float):
             recipe_details[field] = round(recipe_details[field], 3)
 
-    if valid_ingredients_count == 0:
+    if processed_ingredients_with_details_count == 0:
         return {}
         
     return recipe_details
@@ -391,29 +425,45 @@ def get_enriched_recipes_details(
     """
     Enrichit une liste de recettes avec les détails agrégés de leurs ingrédients.
     """
-    enriched_recipes_list = []
+    # 1. Collecter tous les ingrédients normalisés uniques (normalized_name_for_matching)
+    #    à partir des `parsed_ingredients_details` de toutes les recettes demandées.
+    all_unique_normalized_ingredients_to_fetch = set()
     for recipe in recipes:
-        current_recipe_enriched = recipe.copy()
-        ingredient_names_from_recipe = current_recipe_enriched.get("normalized_ingredients", [])
-        
-        if not ingredient_names_from_recipe:
-            current_recipe_enriched["aggregated_details"] = {}
-            enriched_recipes_list.append(current_recipe_enriched)
-            continue
+        # Le champ recipe.get("parsed_ingredients_details") doit exister suite au parsing lors de l'ETL
+        parsed_ingredients_list = recipe.get("parsed_ingredients_details", [])
+        if parsed_ingredients_list:
+            for ing_detail in parsed_ingredients_list:
+                # ing_detail est un dict comme retourné par parse_ingredient_details_fr_en
+                normalized_name_key = ing_detail.get("normalized_name_for_matching")
+                if normalized_name_key:
+                    all_unique_normalized_ingredients_to_fetch.add(normalized_name_key)
 
-        all_ingredient_details_for_this_recipe: List[Dict[str, Any]] = []
-        for ing_name in ingredient_names_from_recipe:
+    # 2. Récupérer les détails pour chaque ingrédient unique et les mettre en cache
+    #    La clé du cache sera `normalized_name_for_matching`.
+    ingredient_details_cache: Dict[str, Dict[str, Any]] = {}
+    if pg_conn and all_unique_normalized_ingredients_to_fetch:
+        for ing_key_name in all_unique_normalized_ingredients_to_fetch:
             details = _get_details_for_single_ingredient(
                 pg_conn,
-                ing_name,
+                ing_key_name, # C'est ce nom qui est cherché dans product_vector
                 min_linked_similarity_score,
                 min_initial_name_similarity
             )
-            if details:
-                all_ingredient_details_for_this_recipe.append(details)
-        
-        if all_ingredient_details_for_this_recipe:
-            current_recipe_enriched["aggregated_details"] = _aggregate_details_for_recipe(all_ingredient_details_for_this_recipe)
+            ingredient_details_cache[ing_key_name] = details # details contient "original_normalized_search_name"
+
+    # 3. Enrichir chaque recette en utilisant le cache
+    enriched_recipes_list = []
+    for recipe in recipes:
+        current_recipe_enriched = recipe.copy()
+        # Récupérer les ingrédients parsés de la recette (qui contiennent les quantités)
+        recipe_parsed_ingredients = current_recipe_enriched.get("parsed_ingredients_details", [])
+
+        if recipe_parsed_ingredients and ingredient_details_cache:
+            # Passer le cache complet et la liste des ingrédients parsés de CETTE recette
+            current_recipe_enriched["aggregated_details"] = _aggregate_details_for_recipe(
+                ingredient_details_cache,
+                recipe_parsed_ingredients
+            )
         else:
             current_recipe_enriched["aggregated_details"] = {} 
             
