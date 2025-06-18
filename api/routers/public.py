@@ -1,15 +1,19 @@
-from fastapi import APIRouter, Query, Path, HTTPException, status
+import logging
+from fastapi import APIRouter, Query, Path, HTTPException, status, Depends
 from typing import Any, Dict, List, Optional # type: ignore
 import os
 from dotenv import load_dotenv
 import sys
 from bson import ObjectId
+from sqlalchemy.orm import Session
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from processing.utils import normalize_name, vectorize_name
-from api.db import get_mongodb_connection
+from api.db import get_mongodb_connection # Pour MongoDB
+from api.services.db_session import get_db # Pour PostgreSQL via SQLAlchemy
 from api.services.query_helper import build_recipe_query_conditions, get_recipe_sort_criteria, IngredientMatchType, SortCriteria
-from api.services.product_query_helper import _get_product_vector_ids_by_name, _get_linked_product_vector_ids, _fetch_recipes_for_ingredient, get_pg_connection, get_mongo_client_connection, _get_processed_products, _aggregate_product_details, get_enriched_recipes_details
+from api.services.product_query_helper import _get_product_vector_ids_by_name, _get_linked_product_vector_ids, _fetch_recipes_for_ingredient, _get_processed_products, _aggregate_product_details, get_enriched_recipes_details
 
 load_dotenv()
 
@@ -60,7 +64,8 @@ async def get_recipes(
     skip: int = Query(0, ge=0, description="Number of recipes to skip"),
     include_details: bool = Query(False, description="Include aggregated nutritional and environmental details for each recipe. This can significantly increase response time."),
     min_linked_similarity_score_for_details: float = Query(0.60, ge=0, le=1, description="When including details: minimum similarity score for linked products (0-1)."),
-    min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="When including details: minimum fuzzy similarity for initial ingredient name search (0-1).")
+    min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="When including details: minimum fuzzy similarity for initial ingredient name search (0-1)."),
+    db_pg: Session = Depends(get_db) # Injection de la session SQLAlchemy pour PostgreSQL
 ):
     """
     Récupère une liste de recettes avec filtres et tris optionnels.
@@ -81,12 +86,12 @@ async def get_recipes(
     Returns:
         dict: Dictionnaire avec statut, message, données des recettes et nombre total.
     """
-    client = get_mongodb_connection()
-    if not client:
+    mongo_client = get_mongodb_connection()
+    if not mongo_client:
         return {"success": False, "message": "Failed to connect to MongoDB", "data": [], "count": 0}
     try: # MongoDB operations
-        db = client["OpenFoodImpact"]
-        collection = db["recipes"]
+        db_mongo = mongo_client["OpenFoodImpact"]
+        collection = db_mongo["recipes"]
 
         query_conditions = build_recipe_query_conditions(
             text_search, ingredients, ingredient_match_type,
@@ -112,24 +117,18 @@ async def get_recipes(
         recipes_data = list(cursor.skip(skip).limit(limit))
 
         if include_details and recipes_data:
-            pg_conn = None
             try:
-                pg_conn = get_pg_connection()
-                if pg_conn:
-                    recipes_data = get_enriched_recipes_details(
-                        pg_conn,
-                        recipes_data,
-                        min_linked_similarity_score_for_details,
-                        min_initial_name_similarity_for_details
-                    )
-                else:
-                    for r_item in recipes_data: r_item["aggregated_details_error"] = "Could not connect to PostgreSQL for details."
+                # db_pg (Session SQLAlchemy) est déjà injecté et disponible
+                recipes_data = get_enriched_recipes_details(
+                    db_pg, # Utiliser la session SQLAlchemy
+                    recipes_data,
+                    min_linked_similarity_score_for_details,
+                    min_initial_name_similarity_for_details
+                )
             except Exception as e_pg:
                 for r_item in recipes_data: r_item["aggregated_details_error"] = f"Error fetching details: {str(e_pg)}"
-            finally:
-                if pg_conn:
-                    pg_conn.close()
-
+            # Pas besoin de fermer db_pg ici, FastAPI s'en charge via la dépendance get_db
+            
         for recipe in recipes_data:
             if "_id" in recipe and isinstance(recipe["_id"], ObjectId):
                 recipe["_id"] = str(recipe["_id"])
@@ -147,8 +146,8 @@ async def get_recipes(
             "count": total_recipes_count
         }
     finally:
-        if client:
-            client.close()
+        if mongo_client:
+            mongo_client.close()
 
 
 @router.get(
@@ -196,7 +195,8 @@ async def get_recipes(
 async def get_recipe_by_id(
     recipe_id: str = Path(..., description="The MongoDB ObjectId of the recipe."),
     min_linked_similarity_score_for_details: float = Query(0.60, ge=0, le=1, description="Minimum similarity score for linked products (0-1) for ingredient details."),
-    min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="Minimum fuzzy similarity for initial ingredient name search (0-1) for ingredient details.")
+    min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="Minimum fuzzy similarity for initial ingredient name search (0-1) for ingredient details."),
+    db_pg: Session = Depends(get_db) # Injection de la session SQLAlchemy
 ):
     """
     Récupère une recette spécifique par son ID MongoDB, avec détails enrichis.
@@ -211,14 +211,13 @@ async def get_recipe_by_id(
         HTTPException: Si la connexion échoue, l'ID est invalide, ou la recette n'est pas trouvée.
     """
     mongo_client = get_mongodb_connection()
-    pg_conn = None
 
     if not mongo_client:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to connect to MongoDB")
 
     try:
-        db = mongo_client["OpenFoodImpact"]
-        collection = db["recipes"]
+        db_mongo = mongo_client["OpenFoodImpact"]
+        collection = db_mongo["recipes"]
 
         try:
             object_id = ObjectId(recipe_id)
@@ -233,15 +232,11 @@ async def get_recipe_by_id(
         if "_id" in recipe_data and isinstance(recipe_data["_id"], ObjectId):
             recipe_data["_id"] = str(recipe_data["_id"])
         try:
-            pg_conn = get_pg_connection()
-            if pg_conn:
-                enriched_list = get_enriched_recipes_details(
-                    pg_conn, [recipe_data.copy()], min_linked_similarity_score_for_details, min_initial_name_similarity_for_details
-                )
-                if enriched_list:
-                    recipe_data = enriched_list[0]
-            else:
-                recipe_data["aggregated_details_error"] = "Could not connect to PostgreSQL for ingredient details."
+            enriched_list = get_enriched_recipes_details(
+                db_pg, [recipe_data.copy()], min_linked_similarity_score_for_details, min_initial_name_similarity_for_details
+            )
+            if enriched_list:
+                recipe_data = enriched_list[0]
         except Exception as e_pg:
             recipe_data["aggregated_details_error"] = f"Error fetching ingredient details: {str(e_pg)}"
         
@@ -254,8 +249,7 @@ async def get_recipe_by_id(
     finally:
         if mongo_client:
             mongo_client.close()
-        if pg_conn:
-            pg_conn.close()
+        # db_pg est géré par FastAPI
 
 @router.get(
     "/products",
@@ -307,7 +301,8 @@ async def get_products(
     min_similarity_score: float = Query(0.65, ge=0, le=1, description="Minimum similarity score for linked products (from ingredient_link table, 0 to 1)"),
     min_name_similarity: float = Query(0.3, ge=0, le=1, description="Minimum fuzzy similarity score for initial name search (pg_trgm similarity, 0 to 1)"),
     limit: int = Query(20, ge=1, description="Number of products to return"),
-    skip: int = Query(0, ge=0, description="Number of products to skip")
+    skip: int = Query(0, ge=0, description="Number of products to skip"),
+    db_pg: Session = Depends(get_db) # Injection de la session SQLAlchemy
 ):
     """
     Récupère les informations de produits liés et les recettes associées pour un nom d'ingrédient.
@@ -322,41 +317,46 @@ async def get_products(
         dict: Dictionnaire avec statut, message, données des produits et recettes, et nombre.
 
     """
-    pg_conn = None
     mongo_client = None
+    print("appel requete")
     try:
-        pg_conn = get_pg_connection()
-        mongo_client = get_mongo_client_connection()
+        mongo_client = get_mongodb_connection() # Utiliser la fonction centralisée
 
-        if not pg_conn:
-            return {"success": False, "message": "Failed to connect to PostgreSQL", "data": None, "count": 0}
-
+        # db_pg est déjà disponible via Depends(get_db)
         normalized_search_name = normalize_name(name_search)
         search_vector = vectorize_name(normalized_search_name)
+        
+        print("recherche ingredients")
 
-        initial_pv_ids = _get_product_vector_ids_by_name(pg_conn, normalized_search_name, min_name_similarity)
+        initial_pv_ids = _get_product_vector_ids_by_name(db_pg, normalized_search_name, min_name_similarity)
 
         if not initial_pv_ids:
             return {"success": True, "message": "No initial product found for the given name.", "data": {"products": [], "recipes": []}, "count": 0, "recipe_count": 0}
 
-        best_links_map = _get_linked_product_vector_ids(pg_conn, initial_pv_ids, min_similarity_score)
+        print("recherche liens")
+
+        best_links_map = _get_linked_product_vector_ids(db_pg, initial_pv_ids, min_similarity_score)
 
         all_unique_pv_ids_to_fetch = set(initial_pv_ids)
         for initial_id in best_links_map:
             for linked_source_data in best_links_map[initial_id].values():
                 all_unique_pv_ids_to_fetch.add(linked_source_data['id'])
-
+                
+        print("recherche details")
+        
         final_products_list = _get_processed_products(
-            pg_conn,
+            db_pg,
             all_unique_pv_ids_to_fetch,
             normalized_search_name,
             search_vector
         )
 
         associated_recipes = []
+        print("recherche recettes")
         if mongo_client:
             associated_recipes = _fetch_recipes_for_ingredient(mongo_client, normalized_search_name, limit=10, skip=0)
         
+        print("aggregation")
         global_details_aggregator = _aggregate_product_details(final_products_list)
 
         total_product_count = len(final_products_list)
@@ -380,7 +380,6 @@ async def get_products(
     except Exception as e:
         return {"success": False, "message": f"An error occurred: {str(e)}", "data": None, "count": 0}
     finally:
-        if pg_conn:
-            pg_conn.close()
+        # db_pg géré par FastAPI
         if mongo_client:
             mongo_client.close()

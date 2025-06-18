@@ -1,13 +1,12 @@
-import psycopg2
 import os
-from processing.utils import get_db_connection
-import secrets
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from jose import jwt
 from fastapi import HTTPException
 from typing import Optional
 from pymongo import MongoClient
+from sqlalchemy.orm import Session
+from api.sql_models import User as UserModel # Renamed to avoid confusion with Pydantic models if any
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -15,7 +14,7 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-def get_user_by_username(username: str):
+def get_user_by_username(db: Session, username: str) -> Optional[UserModel]:
     """
     Récupère un utilisateur par son nom d'utilisateur depuis la base de données.
 
@@ -23,49 +22,34 @@ def get_user_by_username(username: str):
         username (str): Nom d'utilisateur à rechercher.
     Returns:
         tuple or None: Tuple contenant (id, username, password_hash, user_level)
-                       ou None si l'utilisateur n'est pas trouvé ou en cas d'erreur.
+                       ou None si l'utilisateur n'est pas trouvé.
     """
-    conn = get_db_connection()
-    if not conn:
-        return None
-    cur = conn.cursor()
-    cur.execute("SELECT id, username, password, user_level FROM users WHERE username = %s", (username,))
-    user = cur.fetchone()
-    cur.close()
-    conn.close()
-    return user
+    return db.query(UserModel).filter(UserModel.username == username).first()
 
-def create_user(username: str, password: str, user_level: str = "user"):
+def create_user(db: Session, username: str, password: str, user_level: str = "user") -> Optional[UserModel]:
     """
     Crée un nouvel utilisateur dans la base de données.
 
     Args:
+        db (Session): Session SQLAlchemy.
         username (str): Nom d'utilisateur.
         password (str): Mot de passe en clair (sera haché).
         user_level (str, optional): Niveau de l'utilisateur. Défaut à "user".
     Returns:
-        dict or None: Dictionnaire {"user_id": id} en cas de succès, sinon None.
+        UserModel or None: L'objet utilisateur créé en cas de succès, sinon None.
     """
-    conn = get_db_connection()
-    if not conn:
-        return None
-    cur = conn.cursor()
     hashed_password = pwd_context.hash(password)
-    user_id = None
+    db_user = UserModel(username=username, password=hashed_password, user_level=user_level)
     try:
-        cur.execute("INSERT INTO users (username, password, user_level) VALUES (%s, %s, %s) RETURNING id", (username, hashed_password, user_level))
-        result = cur.fetchone()
-        if result:
-            user_id = result[0]
-        conn.commit()
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
     except Exception as e:
-        conn.rollback()
-        user_id = None
-    cur.close()
-    conn.close()
-    if user_id:
-        return {"user_id": user_id}
-    return None
+        db.rollback()
+        # Log l'erreur e
+        print(f"Error creating user: {e}") # Pour le débogage, remplacez par un logger
+        return None
 
 def verify_password(plain_password, hashed_password):
     """

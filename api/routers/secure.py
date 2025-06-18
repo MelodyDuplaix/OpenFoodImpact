@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends
-from auth import get_user
+from auth import get_current_user # Renamed for clarity
 from models import Recipe
 
 router = APIRouter()
 
 @router.get("/", include_in_schema=False)
-async def get_testroute(user: dict = Depends(get_user)):
+async def get_testroute(user: dict = Depends(get_current_user)):
     """
     Route de test sécurisée pour vérifier l'authentification de l'utilisateur.
 

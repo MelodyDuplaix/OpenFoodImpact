@@ -1,44 +1,26 @@
 import os
 import sys
+from time import time
 from typing import List, Optional, Dict, Any, Set
-import psycopg2 # type: ignore
-from psycopg2.extras import DictCursor # type: ignore
 import pymongo # type: ignore
+from sqlalchemy.orm import Session
+from sqlalchemy import func, select, text, or_, and_, case
+from sqlalchemy.dialects.postgresql import ARRAY
+import logging
+logger = logging.getLogger(__name__)
+level = getattr(logging, "INFO", None)
+logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(module)s %(message)s')
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'processing'))
 from processing.utils import normalize_name, vectorize_name
 from processing.utils import DEFAULT_QUANTITY_GRAMS
-def get_pg_connection():
-    """
-    Établit une connexion à la base de données PostgreSQL.
-
-    Args:
-        None
-    Returns:
-        psycopg2.extensions.connection: Objet de connexion à la base de données.
-    """
-    return psycopg2.connect(
-        dbname=os.getenv('POSTGRES_DB', 'postgres'),
-        user=os.getenv('POSTGRES_USER', 'postgres'),
-        password=os.getenv('POSTGRES_PASSWORD', 'postgres'),
-        host=os.getenv('POSTGRES_HOST', 'localhost'),
-        port=os.getenv('POSTGRES_PORT', '5432'),
-        cursor_factory=DictCursor
-    )
-
-def get_mongo_client_connection():
-    """
-    Établit une connexion client à MongoDB.
-
-    Args:
-        None
-    Returns:
-        pymongo.MongoClient: Client MongoDB.
-    """
-    return pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
+from api.sql_models import ProductVector, IngredientLink, Agribalyse, OpenFoodFacts, GreenpeaceSeason
+# La fonction get_mongodb_connection est déjà dans api/db.py, nous l'utiliserons à partir de là.
+# La connexion PostgreSQL est gérée par la session SQLAlchemy.
 
 
 def _get_product_vector_ids_by_name(
-    conn: psycopg2.extensions.connection,
+    db: Session,
     normalized_name_search: str,
     min_name_similarity: float
 ) -> Set[int]:
@@ -46,7 +28,7 @@ def _get_product_vector_ids_by_name(
     Récupère les IDs de product_vector par similarité de nom.
 
     Args:
-        conn: Connexion à la base de données PostgreSQL.
+        db: Session SQLAlchemy.
         normalized_name_search: Nom normalisé pour la recherche.
         min_name_similarity: Score de similarité de nom minimal.
     Returns:
@@ -56,21 +38,19 @@ def _get_product_vector_ids_by_name(
         return set()
 
     ids = set()
-    with conn.cursor() as cur:
-        try:
-            sql = """
-                SELECT id FROM product_vector
-                WHERE similarity(name, %s) >= %s
-            """
-            cur.execute(sql, (normalized_name_search, min_name_similarity))
-            for row in cur.fetchall():
-                ids.add(row['id']) # type: ignore
-        except Exception as e:
-            print(f"Error in _get_product_vector_ids_by_name: {e}")
+    try:
+        stmt = (
+            select(ProductVector.id)
+            .where(func.similarity(ProductVector.name, normalized_name_search) >= min_name_similarity)
+        )
+        result = db.execute(stmt).scalars().all()
+        ids = set(result)
+    except Exception as e:
+        logger.error(f"Error in _get_product_vector_ids_by_name for '{normalized_name_search}': {e}")
     return ids
 
 def _get_linked_product_vector_ids(
-    conn: psycopg2.extensions.connection,
+    db: Session,
     initial_ids: Set[int],
     min_similarity_score: float
 ) -> Dict[int, Dict[str, Any]]:
@@ -78,7 +58,7 @@ def _get_linked_product_vector_ids(
     Trouve les meilleurs IDs de product_vector liés pour chaque ID initial.
 
     Args:
-        conn: Connexion à la base de données PostgreSQL.
+        db: Session SQLAlchemy.
         initial_ids: Ensemble d'IDs de product_vector initiaux.
         min_similarity_score: Score de similarité minimal pour les liens.
     Returns:
@@ -90,74 +70,93 @@ def _get_linked_product_vector_ids(
 
     best_links_per_initial_id: Dict[int, Dict[str, Any]] = {}
 
-    with conn.cursor() as cur:
-        try:
-            cur.execute(
-                "SELECT id, name, source, name_vector FROM product_vector WHERE id = ANY(%s)",
-                (list(initial_ids),)
-            )
-            initial_products_data = {row['id']: row for row in cur.fetchall()} # type: ignore
+    try:
+        initial_products_data_query = (
+            select(ProductVector.id, ProductVector.name, ProductVector.source, ProductVector.name_vector)
+            .where(ProductVector.id.in_(initial_ids))
+        )
+        initial_products_results = db.execute(initial_products_data_query).all()
+        initial_products_data = {row.id: row for row in initial_products_results}
 
-            cur.execute("SELECT DISTINCT source FROM product_vector;")
-            all_db_sources = [row['source'] for row in cur.fetchall()] # type: ignore
+        all_db_sources_query = select(ProductVector.source).distinct()
+        all_db_sources = [row[0] for row in db.execute(all_db_sources_query).all()]
 
-            for initial_pv_id, initial_product_info in initial_products_data.items():
-                current_initial_source = initial_product_info['source'] # type: ignore
-                current_initial_name = initial_product_info['name'] # type: ignore
-                best_links_for_current_initial: Dict[str, Any] = {}
+        for initial_pv_id, initial_product_info in initial_products_data.items():
+            current_initial_source = initial_product_info.source
+            best_links_for_current_initial: Dict[str, Any] = {}
 
-                for other_source_in_db in all_db_sources:
-                    if other_source_in_db == current_initial_source:
-                        continue
+            for other_source_in_db in all_db_sources:
+                if other_source_in_db == current_initial_source:
+                    continue
 
-                    cur.execute("""
-                        WITH potential_links AS (
-                            (SELECT il.id_linked, pv.name as linked_name, il.score
-                             FROM ingredient_link il
-                             JOIN product_vector pv ON il.id_linked = pv.id
-                             WHERE il.id_source = %s AND il.linked_source = %s AND il.score >= %s
-                             ORDER BY il.score DESC
-                             LIMIT 1)
-                            UNION ALL
-                            (SELECT il.id_source as id_linked, pv.name as linked_name, il.score
-                             FROM ingredient_link il
-                             JOIN product_vector pv ON il.id_source = pv.id
-                             WHERE il.id_linked = %s AND il.source = %s AND il.score >= %s
-                             ORDER BY il.score DESC
-                             LIMIT 1)
-                        )
-                        SELECT id_linked, linked_name, score
-                        FROM potential_links
-                        ORDER BY score DESC
-                        LIMIT 1;
-                    """, (initial_pv_id, other_source_in_db, min_similarity_score,
-                          initial_pv_id, other_source_in_db, min_similarity_score))
-                    
-                    best_match_for_source = cur.fetchone()
-                    
-                    if best_match_for_source:
-                        best_links_for_current_initial[other_source_in_db] = {
-                            'id': best_match_for_source['id_linked'], # type: ignore
-                            'name': best_match_for_source['linked_name'], # type: ignore
-                            'score': best_match_for_source['score'] # type: ignore
-                        }
+                # Sous-requête pour les liens où initial_pv_id est la source
+                stmt1 = (
+                    select(IngredientLink.id_linked, ProductVector.name.label("linked_name"), IngredientLink.score)
+                    .join(ProductVector, IngredientLink.id_linked == ProductVector.id)
+                    .where(
+                        IngredientLink.id_source == initial_pv_id,
+                        IngredientLink.linked_source == other_source_in_db,
+                        IngredientLink.score >= min_similarity_score
+                    )
+                    .order_by(IngredientLink.score.desc())
+                    .limit(1)
+                )
+
+                # Sous-requête pour les liens où initial_pv_id est lié
+                stmt2 = (
+                    select(IngredientLink.id_source.label("id_linked"), ProductVector.name.label("linked_name"), IngredientLink.score)
+                    .join(ProductVector, IngredientLink.id_source == ProductVector.id)
+                    .where(
+                        IngredientLink.id_linked == initial_pv_id,
+                        IngredientLink.source == other_source_in_db,
+                        IngredientLink.score >= min_similarity_score
+                    )
+                    .order_by(IngredientLink.score.desc())
+                    .limit(1)
+                )
+
+                # Union des deux et sélection du meilleur
+                # SQLAlchemy < 1.4 ne supporte pas limit directement sur union, donc on utilise une CTE ou une sous-requête
+                # Pour SQLAlchemy >= 1.4, on peut faire union_all(stmt1, stmt2).order_by(...).limit(1)
+                # Ici, on exécute séparément et on compare en Python pour simplifier,
+                # ou on construit une requête plus complexe avec CTE.
+                # Pour cet exemple, nous allons exécuter et comparer, ce qui est moins optimal mais plus simple à écrire ici.
+                # Une solution plus SQL-esque serait une CTE avec ROW_NUMBER()
+
+                res1 = db.execute(stmt1).first()
+                res2 = db.execute(stmt2).first()
+
+                best_match_for_source = None
+                if res1 and res2:
+                    best_match_for_source = res1 if res1.score >= res2.score else res2
+                elif res1:
+                    best_match_for_source = res1
+                elif res2:
+                    best_match_for_source = res2
                 
-                if best_links_for_current_initial:
-                    best_links_per_initial_id[initial_pv_id] = best_links_for_current_initial
-        except Exception as e:
-            print(f"Error in _get_linked_product_vector_ids: {e}")
+                if best_match_for_source:
+                    best_links_for_current_initial[other_source_in_db] = {
+                        'id': best_match_for_source.id_linked,
+                        'name': best_match_for_source.linked_name,
+                        'score': best_match_for_source.score
+                    }
+            
+            if best_links_for_current_initial:
+                best_links_per_initial_id[initial_pv_id] = best_links_for_current_initial
+    except Exception as e:
+        logger.error(f"Error in _get_linked_product_vector_ids for initial_ids {initial_ids}: {e}")
     return best_links_per_initial_id
 
 
 def _fetch_product_details(
-    conn: psycopg2.extensions.connection,
+    db: Session,
     product_vector_ids: Set[int]
 ) -> List[Dict[str, Any]]:
     """
-    Récupère les détails des produits depuis product_vector et les tables sources.
+    Récupère les détails des produits depuis product_vector et les tables sources en utilisant SQLAlchemy.
 
     Args:
-        conn: Connexion à la base de données PostgreSQL.
+        db: Session SQLAlchemy.
         product_vector_ids: Ensemble d'IDs de product_vector à récupérer.
     Returns:
         List[Dict[str, Any]]: Liste de dictionnaires contenant les détails des produits.
@@ -165,81 +164,92 @@ def _fetch_product_details(
     if not product_vector_ids:
         return []
 
-    products_dict: Dict[int, Dict[str, Any]] = {}
-    with conn.cursor() as cur:
-        try:
-            cur.execute(
-                "SELECT id, name, source, code_source FROM product_vector WHERE id = ANY(%s)",
-                (list(product_vector_ids),)
+    results = []
+    try:
+        products = (
+            db.query(ProductVector)
+            .options(
+                # Eager load related data to avoid N+1 queries if accessed later in a loop
+                # This is more efficient if you always need these details.
+                # If not, you can query them on demand.
+                # For this function, we want to fetch all details.
+                # relationship() already defines how to load these.
+                # We can use joinedload or selectinload based on the expected data access pattern.
+                # For simplicity here, we'll access them via the relationships.
             )
-            for row in cur.fetchall():
-                products_dict[row['id']] = dict(row) # type: ignore
-            source_tables_config = {
-                'agribalyse': {'table': 'agribalyse'},
-                'openfoodfacts': {'table': 'openfoodfacts'},
-                'greenpeace': {'table': 'greenpeace_season'}
+            .filter(ProductVector.id.in_(list(product_vector_ids)))
+            .all()
+        )
+
+        for pv_item in products:
+            product_data = {
+                "id": pv_item.id,
+                "name": pv_item.name,
+                "source": pv_item.source,
+                "code_source": pv_item.code_source,
+                # name_vector is not directly serializable, handle as needed
             }
 
-            for pv_id, product_data in products_dict.items():
-                source_name = product_data['source']
-                if source_name in source_tables_config:
-                    config = source_tables_config[source_name]
-                    table_name = config['table']
-                    if source_name == 'greenpeace':
-                        cur.execute(
-                            f"SELECT month FROM {table_name} WHERE product_vector_id = %s",
-                            (pv_id,)
-                        )
-                        months = [row['month'] for row in cur.fetchall()] # type: ignore
-                        if months:
-                             products_dict[pv_id]['months_in_season'] = months
-                    else:
-                        cur.execute(
-                            f"SELECT * FROM {table_name} WHERE product_vector_id = %s LIMIT 1",
-                            (pv_id,)
-                        )
-                        details_row = cur.fetchone()
-                        if details_row:
-                            source_details = {k: v for k, v in dict(details_row).items() if k not in ['id', 'product_vector_id']}
-                            products_dict[pv_id].update(source_details)
-        except Exception as e:
-            print(f"Error in _fetch_product_details: {e}")
-            return []
-    return list(products_dict.values())
+            if pv_item.source == 'agribalyse' and pv_item.agribalyse_entries: # type: ignore
+                # Assuming one-to-one or taking the first entry for simplicity
+                ag_entry = pv_item.agribalyse_entries[0]
+                product_data.update({
+                    col.name: getattr(ag_entry, col.name)
+                    for col in Agribalyse.__table__.columns
+                    if col.name not in ['id', 'product_vector_id']
+                })
+            elif pv_item.source == 'openfoodfacts' and pv_item.openfoodfacts_entries: # type: ignore
+                off_entry = pv_item.openfoodfacts_entries[0]
+                product_data.update({
+                    col.name: getattr(off_entry, col.name)
+                    for col in OpenFoodFacts.__table__.columns
+                    if col.name not in ['id', 'product_vector_id']
+                })
+            elif pv_item.source == 'greenpeace' and pv_item.greenpeace_season_entries: # type: ignore
+                months = [entry.month for entry in pv_item.greenpeace_season_entries]
+                if months:
+                    product_data['months_in_season'] = months
+            
+            results.append(product_data)
+            
+    except Exception as e:
+        logger.error(f"Error in _fetch_product_details for product_vector_ids {product_vector_ids}: {e}")
+        return []
+    return results
 
 
 def _calculate_similarity_to_search_term(
-    conn: psycopg2.extensions.connection,
+    db: Session,
     product_vector_id: int,
     normalized_search_name: str,
-    search_vector: List[float]
+    search_vector: List[float] # This should be a NumPy array or list for pgvector
 ) -> float:
     """
     Calcule le score de similarité combiné d'un produit par rapport à un terme de recherche.
 
     Args:
-        conn: Connexion à la base de données PostgreSQL.
+        db: Session SQLAlchemy.
         product_vector_id: ID du produit dans product_vector.
         normalized_search_name: Nom de recherche normalisé.
-        search_vector: Vecteur du nom de recherche.
+        search_vector: Vecteur du nom de recherche (list or np.array).
     Returns:
         float: Score de similarité global.
     """
     score = 0.0
-    with conn.cursor() as cur:
-        try:
-            search_vector_str = '[' + ','.join(map(str, search_vector)) + ']'
-            sql = """
-                SELECT (0.4 * (1 - (pv.name_vector <=> %s::vector)) + 0.6 * similarity(pv.name, %s)) AS global_score
-                FROM product_vector pv
-                WHERE pv.id = %s
-            """
-            cur.execute(sql, (search_vector_str, normalized_search_name, product_vector_id))
-            row = cur.fetchone()
-            if row and row['global_score'] is not None: # type: ignore
-                score = float(row['global_score']) # type: ignore
-        except Exception as e:
-            print(f"Error calculating similarity score for pv_id {product_vector_id}: {e}")
+    try:
+        
+        stmt = (
+            select(
+                (0.4 * (1 - ProductVector.name_vector.cosine_distance(search_vector)) +
+                 0.6 * func.similarity(ProductVector.name, normalized_search_name)).label("global_score")
+            )
+            .where(ProductVector.id == product_vector_id)
+        )
+        result = db.execute(stmt).scalar_one_or_none()
+        if result is not None:
+            score = float(result)
+    except Exception as e:
+        logger.error(f"Error calculating similarity score for pv_id {product_vector_id} against '{normalized_search_name}': {e}")
     return score
 
 
@@ -272,13 +282,13 @@ def _fetch_recipes_for_ingredient(
         cursor = collection.find(query, {"_id": 0}).skip(skip).limit(limit)
         recipes_data = list(cursor)
     except Exception as e:
-        print(f"Error fetching recipes from MongoDB: {e}")
+        logger.error(f"Error fetching recipes from MongoDB for ingredient '{normalized_ingredient_name}': {e}")
     
     return recipes_data
 
 
 def _get_processed_products(
-    conn: psycopg2.extensions.connection,
+    db: Session,
     all_unique_pv_ids_to_fetch: Set[int],
     normalized_search_name: str,
     search_vector: List[float]
@@ -287,7 +297,7 @@ def _get_processed_products(
     Traite une liste d'IDs de produits pour obtenir une liste finale de produits enrichis et triés.
 
     Args:
-        conn: Connexion à la base de données PostgreSQL.
+        db: Session SQLAlchemy.
         all_unique_pv_ids_to_fetch: Ensemble d'IDs de product_vector uniques à traiter.
         normalized_search_name: Nom de recherche normalisé.
         search_vector: Vecteur du nom de recherche.
@@ -296,23 +306,28 @@ def _get_processed_products(
     """
     if not all_unique_pv_ids_to_fetch:
         return []
+    
+    logger.debug(f"_get_processed_products: Fetching details for {len(all_unique_pv_ids_to_fetch)} IDs.")
 
-    products_with_details = _fetch_product_details(conn, all_unique_pv_ids_to_fetch)
+    products_with_details = _fetch_product_details(db, all_unique_pv_ids_to_fetch)
 
     for product in products_with_details:
         product['score_to_search'] = _calculate_similarity_to_search_term(
-            conn, product['id'], normalized_search_name, search_vector
+            db, product['id'], normalized_search_name, search_vector
         )
     
     best_product_per_source: Dict[str, Any] = {}
     products_with_details.sort(key=lambda x: (x.get('source'), x.get('score_to_search', 0.0)), reverse=True)
+    
+    logger.debug("_get_processed_products, etape 4")
 
+
+    # Select the best product per source based on the calculated score_to_search
     for product in products_with_details:
         source = product['source']
         current_score = product.get('score_to_search', 0.0)
         if source not in best_product_per_source or current_score > best_product_per_source[source].get('score_to_search', 0.0):
             best_product_per_source[source] = product
-    
     final_products_list = list(best_product_per_source.values())
     final_products_list.sort(key=lambda x: x.get('score_to_search', 0.0), reverse=True)
     
@@ -348,49 +363,64 @@ def _aggregate_product_details(
     return global_details_aggregator
 
 def _get_details_for_single_ingredient(
-    pg_conn: psycopg2.extensions.connection,
+    db: Session, # Remplacer pg_conn par db (Session SQLAlchemy)
     ingredient_name: str,
     min_linked_similarity_score: float,
     min_initial_name_similarity: float
 ) -> Dict[str, Any]:
     """
-    Récupère et agrège les détails pour un seul ingrédient.
+    Récupère et agrège les détails pour un seul ingrédient,
+    en utilisant les liens précalculés dans ingredient_link.
 
     Args:
-        pg_conn: Connexion à la base de données PostgreSQL.
+        db: Session SQLAlchemy.
         ingredient_name: Nom de l'ingrédient (normalisé) à rechercher.
         min_linked_similarity_score: Score de similarité minimal pour les produits liés.
         min_initial_name_similarity: Score de similarité minimal pour la recherche initiale du nom.
+
     Returns:
         Dict[str, Any]: Dictionnaire des détails agrégés pour l'ingrédient.
     """
-    search_vector = vectorize_name(ingredient_name)
-    initial_pv_ids = _get_product_vector_ids_by_name(pg_conn, ingredient_name, min_initial_name_similarity)
+    logger.debug(f"Getting details for single ingredient: {ingredient_name}")
+
+    # 1. Find initial product_vector entries for the ingredient name
+    initial_pv_ids = _get_product_vector_ids_by_name(db, ingredient_name, min_initial_name_similarity)
     if not initial_pv_ids:
-        return {}
+        logger.debug(f"No initial product_vector IDs found for {ingredient_name} with similarity {min_initial_name_similarity}")
+        return {"original_normalized_search_name": ingredient_name} 
 
-    best_links_map = _get_linked_product_vector_ids(pg_conn, initial_pv_ids, min_linked_similarity_score)
+    all_pv_ids_to_consider = set(initial_pv_ids)
+    logger.debug(f"Initial PV IDs for {ingredient_name}: {initial_pv_ids}")
 
-    all_unique_pv_ids_to_fetch = set(initial_pv_ids)
-    for initial_id in best_links_map:
-        for linked_source_data in best_links_map[initial_id].values():
-            all_unique_pv_ids_to_fetch.add(linked_source_data['id'])
-
-    if not all_unique_pv_ids_to_fetch:
-        pass
-
-
-    processed_products_for_ingredient = _get_processed_products(
-        pg_conn,
-        all_unique_pv_ids_to_fetch,
-        ingredient_name,
-        search_vector
+    # 2. Find all linked products from ingredient_link for these initial_pv_ids
+    # Query for links where initial_ids are the source
+    stmt_linked_from_source = (
+        select(IngredientLink.id_linked)
+        .where(
+            IngredientLink.id_source.in_(initial_pv_ids),
+            IngredientLink.score >= min_linked_similarity_score
+        )
     )
+    linked_ids_from_source = db.execute(stmt_linked_from_source).scalars().all()
+    all_pv_ids_to_consider.update(linked_ids_from_source)
 
-    if not processed_products_for_ingredient:
-        return {}
+    # Query for links where initial_ids are the linked product
+    stmt_linked_to_target = (
+        select(IngredientLink.id_source) 
+        .where(
+            IngredientLink.id_linked.in_(initial_pv_ids),
+            IngredientLink.score >= min_linked_similarity_score
+        )
+    )
+    linked_ids_to_target = db.execute(stmt_linked_to_target).scalars().all()
+    all_pv_ids_to_consider.update(linked_ids_to_target)
 
-    ingredient_aggregated_details = _aggregate_product_details(processed_products_for_ingredient)
+    # 3. Fetch details for all these product_vector entries
+    product_details_list = _fetch_product_details(db, all_pv_ids_to_consider)
+    logger.debug(f"Fetched details for {len(product_details_list)} products for {ingredient_name}")
+
+    # 4. Aggregate these details
+    ingredient_aggregated_details = _aggregate_product_details(product_details_list) if product_details_list else {}
     ingredient_aggregated_details["original_normalized_search_name"] = ingredient_name
     return ingredient_aggregated_details
 
@@ -478,7 +508,7 @@ def _aggregate_details_for_recipe(
 
 
 def get_enriched_recipes_details(
-    pg_conn: psycopg2.extensions.connection,
+    db: Session, # Remplacer pg_conn par db (Session SQLAlchemy)
     recipes: List[Dict[str, Any]],
     min_linked_similarity_score: float,
     min_initial_name_similarity: float
@@ -487,13 +517,14 @@ def get_enriched_recipes_details(
     Enrichit une liste de recettes avec les détails agrégés de leurs ingrédients.
 
     Args:
-        pg_conn: Connexion à la base de données PostgreSQL.
+        db: Session SQLAlchemy.
         recipes: Liste de recettes (dictionnaires) à enrichir.
         min_linked_similarity_score: Score de similarité minimal pour les produits liés.
         min_initial_name_similarity: Score de similarité minimal pour la recherche initiale du nom.
     Returns:
         List[Dict[str, Any]]: Liste des recettes enrichies.
     """
+    logger.debug("Starting enrichment for multiple recipes.")
     all_unique_normalized_ingredients_to_fetch = set()
     for recipe in recipes:
         parsed_ingredients_list = recipe.get("parsed_ingredients_details", [])
@@ -502,18 +533,20 @@ def get_enriched_recipes_details(
                 normalized_name_key = ing_detail.get("normalized_name_for_matching")
                 if normalized_name_key:
                     all_unique_normalized_ingredients_to_fetch.add(normalized_name_key)
-
+                    
+    logger.debug(f"Found {len(all_unique_normalized_ingredients_to_fetch)} unique normalized ingredients to fetch details for.")
     ingredient_details_cache: Dict[str, Dict[str, Any]] = {}
-    if pg_conn and all_unique_normalized_ingredients_to_fetch:
+    if db and all_unique_normalized_ingredients_to_fetch: # Vérifier db au lieu de pg_conn
         for ing_key_name in all_unique_normalized_ingredients_to_fetch:
             details = _get_details_for_single_ingredient(
-                pg_conn,
+                db, # Passer db
                 ing_key_name,
                 min_linked_similarity_score,
                 min_initial_name_similarity
             )
             ingredient_details_cache[ing_key_name] = details # details contient "original_normalized_search_name"
 
+    logger.debug("Aggregating details for each recipe using cached ingredient info.")
     # 3. Enrichir chaque recette en utilisant le cache
     enriched_recipes_list = []
     for recipe in recipes:
@@ -529,4 +562,6 @@ def get_enriched_recipes_details(
             current_recipe_enriched["aggregated_details"] = {} 
             
         enriched_recipes_list.append(current_recipe_enriched)
+    
+    logger.debug("Recipe enrichment process completed.")
     return enriched_recipes_list

@@ -16,3 +16,5 @@ python-multipart
 bcrypt
 python-jose
 matplotlib
+sqlalchemy
+pgvector
