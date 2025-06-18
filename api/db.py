@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from typing import Optional
 from pymongo import MongoClient
 from sqlalchemy.orm import Session
-from api.sql_models import User as UserModel # Renamed to avoid confusion with Pydantic models if any
+from api.sql_models import User as UserModel
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -48,7 +48,7 @@ def create_user(db: Session, username: str, password: str, user_level: str = "us
     except Exception as e:
         db.rollback()
         # Log l'erreur e
-        print(f"Error creating user: {e}") # Pour le débogage, remplacez par un logger
+        print(f"Error creating user: {e}")
         return None
 
 def verify_password(plain_password, hashed_password):

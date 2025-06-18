@@ -8,15 +8,13 @@ from sqlalchemy import func, select, text, or_, and_, case
 from sqlalchemy.dialects.postgresql import ARRAY
 import logging
 logger = logging.getLogger(__name__)
-level = getattr(logging, "INFO", None)
+level = getattr(logging, "DEBUG", None)
 logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(module)s %(message)s')
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'processing'))
 from processing.utils import normalize_name, vectorize_name
 from processing.utils import DEFAULT_QUANTITY_GRAMS
 from api.sql_models import ProductVector, IngredientLink, Agribalyse, OpenFoodFacts, GreenpeaceSeason
-# La fonction get_mongodb_connection est déjà dans api/db.py, nous l'utiliserons à partir de là.
-# La connexion PostgreSQL est gérée par la session SQLAlchemy.
 
 
 def _get_product_vector_ids_by_name(
@@ -89,7 +87,6 @@ def _get_linked_product_vector_ids(
                 if other_source_in_db == current_initial_source:
                     continue
 
-                # Sous-requête pour les liens où initial_pv_id est la source
                 stmt1 = (
                     select(IngredientLink.id_linked, ProductVector.name.label("linked_name"), IngredientLink.score)
                     .join(ProductVector, IngredientLink.id_linked == ProductVector.id)
@@ -102,7 +99,6 @@ def _get_linked_product_vector_ids(
                     .limit(1)
                 )
 
-                # Sous-requête pour les liens où initial_pv_id est lié
                 stmt2 = (
                     select(IngredientLink.id_source.label("id_linked"), ProductVector.name.label("linked_name"), IngredientLink.score)
                     .join(ProductVector, IngredientLink.id_source == ProductVector.id)
@@ -114,15 +110,6 @@ def _get_linked_product_vector_ids(
                     .order_by(IngredientLink.score.desc())
                     .limit(1)
                 )
-
-                # Union des deux et sélection du meilleur
-                # SQLAlchemy < 1.4 ne supporte pas limit directement sur union, donc on utilise une CTE ou une sous-requête
-                # Pour SQLAlchemy >= 1.4, on peut faire union_all(stmt1, stmt2).order_by(...).limit(1)
-                # Ici, on exécute séparément et on compare en Python pour simplifier,
-                # ou on construit une requête plus complexe avec CTE.
-                # Pour cet exemple, nous allons exécuter et comparer, ce qui est moins optimal mais plus simple à écrire ici.
-                # Une solution plus SQL-esque serait une CTE avec ROW_NUMBER()
-
                 res1 = db.execute(stmt1).first()
                 res2 = db.execute(stmt2).first()
 
@@ -169,13 +156,6 @@ def _fetch_product_details(
         products = (
             db.query(ProductVector)
             .options(
-                # Eager load related data to avoid N+1 queries if accessed later in a loop
-                # This is more efficient if you always need these details.
-                # If not, you can query them on demand.
-                # For this function, we want to fetch all details.
-                # relationship() already defines how to load these.
-                # We can use joinedload or selectinload based on the expected data access pattern.
-                # For simplicity here, we'll access them via the relationships.
             )
             .filter(ProductVector.id.in_(list(product_vector_ids)))
             .all()
@@ -187,11 +167,9 @@ def _fetch_product_details(
                 "name": pv_item.name,
                 "source": pv_item.source,
                 "code_source": pv_item.code_source,
-                # name_vector is not directly serializable, handle as needed
             }
 
             if pv_item.source == 'agribalyse' and pv_item.agribalyse_entries: # type: ignore
-                # Assuming one-to-one or taking the first entry for simplicity
                 ag_entry = pv_item.agribalyse_entries[0]
                 product_data.update({
                     col.name: getattr(ag_entry, col.name)
@@ -222,7 +200,7 @@ def _calculate_similarity_to_search_term(
     db: Session,
     product_vector_id: int,
     normalized_search_name: str,
-    search_vector: List[float] # This should be a NumPy array or list for pgvector
+    search_vector: List[float]
 ) -> float:
     """
     Calcule le score de similarité combiné d'un produit par rapport à un terme de recherche.
@@ -321,8 +299,6 @@ def _get_processed_products(
     
     logger.debug("_get_processed_products, etape 4")
 
-
-    # Select the best product per source based on the calculated score_to_search
     for product in products_with_details:
         source = product['source']
         current_score = product.get('score_to_search', 0.0)
@@ -363,7 +339,7 @@ def _aggregate_product_details(
     return global_details_aggregator
 
 def _get_details_for_single_ingredient(
-    db: Session, # Remplacer pg_conn par db (Session SQLAlchemy)
+    db: Session,
     ingredient_name: str,
     min_linked_similarity_score: float,
     min_initial_name_similarity: float
@@ -383,7 +359,6 @@ def _get_details_for_single_ingredient(
     """
     logger.debug(f"Getting details for single ingredient: {ingredient_name}")
 
-    # 1. Find initial product_vector entries for the ingredient name
     initial_pv_ids = _get_product_vector_ids_by_name(db, ingredient_name, min_initial_name_similarity)
     if not initial_pv_ids:
         logger.debug(f"No initial product_vector IDs found for {ingredient_name} with similarity {min_initial_name_similarity}")
@@ -391,9 +366,6 @@ def _get_details_for_single_ingredient(
 
     all_pv_ids_to_consider = set(initial_pv_ids)
     logger.debug(f"Initial PV IDs for {ingredient_name}: {initial_pv_ids}")
-
-    # 2. Find all linked products from ingredient_link for these initial_pv_ids
-    # Query for links where initial_ids are the source
     stmt_linked_from_source = (
         select(IngredientLink.id_linked)
         .where(
@@ -403,8 +375,6 @@ def _get_details_for_single_ingredient(
     )
     linked_ids_from_source = db.execute(stmt_linked_from_source).scalars().all()
     all_pv_ids_to_consider.update(linked_ids_from_source)
-
-    # Query for links where initial_ids are the linked product
     stmt_linked_to_target = (
         select(IngredientLink.id_source) 
         .where(
@@ -414,12 +384,8 @@ def _get_details_for_single_ingredient(
     )
     linked_ids_to_target = db.execute(stmt_linked_to_target).scalars().all()
     all_pv_ids_to_consider.update(linked_ids_to_target)
-
-    # 3. Fetch details for all these product_vector entries
     product_details_list = _fetch_product_details(db, all_pv_ids_to_consider)
     logger.debug(f"Fetched details for {len(product_details_list)} products for {ingredient_name}")
-
-    # 4. Aggregate these details
     ingredient_aggregated_details = _aggregate_product_details(product_details_list) if product_details_list else {}
     ingredient_aggregated_details["original_normalized_search_name"] = ingredient_name
     return ingredient_aggregated_details
@@ -489,7 +455,6 @@ def _aggregate_details_for_recipe(
             common_months.intersection_update(month_list)
         if common_months: # type: ignore
             recipe_details["months_in_season"] = sorted(list(common_months))
-        else: # Pas de mois en commun, on prend l'union de tous les mois
             union_months = set()
             for month_list in all_months_lists:
                 union_months.update(month_list)
@@ -508,7 +473,7 @@ def _aggregate_details_for_recipe(
 
 
 def get_enriched_recipes_details(
-    db: Session, # Remplacer pg_conn par db (Session SQLAlchemy)
+    db: Session,
     recipes: List[Dict[str, Any]],
     min_linked_similarity_score: float,
     min_initial_name_similarity: float
@@ -536,18 +501,17 @@ def get_enriched_recipes_details(
                     
     logger.debug(f"Found {len(all_unique_normalized_ingredients_to_fetch)} unique normalized ingredients to fetch details for.")
     ingredient_details_cache: Dict[str, Dict[str, Any]] = {}
-    if db and all_unique_normalized_ingredients_to_fetch: # Vérifier db au lieu de pg_conn
+    if db and all_unique_normalized_ingredients_to_fetch:
         for ing_key_name in all_unique_normalized_ingredients_to_fetch:
             details = _get_details_for_single_ingredient(
-                db, # Passer db
+                db,
                 ing_key_name,
                 min_linked_similarity_score,
                 min_initial_name_similarity
             )
-            ingredient_details_cache[ing_key_name] = details # details contient "original_normalized_search_name"
+            ingredient_details_cache[ing_key_name] = details
 
     logger.debug("Aggregating details for each recipe using cached ingredient info.")
-    # 3. Enrichir chaque recette en utilisant le cache
     enriched_recipes_list = []
     for recipe in recipes:
         current_recipe_enriched = recipe.copy()

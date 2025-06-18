@@ -1,8 +1,8 @@
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session as SQLAlchemySession # Renamed to avoid conflict
+from sqlalchemy.orm import sessionmaker, Session as SQLAlchemySession
 from typing import Generator
-from api.sql_models import Base # Import Base from your models file
+from api.sql_models import Base
 
 POSTGRES_USER = os.getenv('POSTGRES_USER', 'postgres')
 POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD', 'postgres')

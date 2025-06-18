@@ -60,7 +60,7 @@ UNIT_TO_GRAMS_APPROX = {
     "g": 1, "gramme": 1, "grammes": 1,
     "kg": 1000, "kilogramme": 1000, "kilogrammes": 1000,
     "mg": 0.001,
-    "ml": 1,  # En supposant densité de l'eau pour liquides
+    "ml": 1,
     "cl": 10,
     "l": 1000, "litre": 1000, "litres": 1000,
     "cuillère à soupe": 15, "cuillères à soupe": 15, "cs": 15, "tbsp": 15,
@@ -202,10 +202,8 @@ def parse_ingredient_details_fr_en(ingredient_string: str) -> Dict[str, Any]:
     preparation_terms = ["coupé", "coupée", "coupés", "coupées", "émincé", "émincée", "haché", "hachée", "fondu", "fondue", "frais", "fraîche", "frais", "fraîches", "en dés", "en rondelles", "finement"]
     cleaned_name = " ".join(words).strip()
 
-    # Conversion en grammes
     if quantity_str and unit_str and unit_str in UNIT_TO_GRAMS_APPROX:
         try:
-            # Gérer les fractions comme "1/2"
             if "/" in quantity_str:
                 num, den = map(float, quantity_str.split('/'))
                 q_val = num / den

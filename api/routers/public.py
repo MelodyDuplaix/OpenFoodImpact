@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from processing.utils import normalize_name, vectorize_name
-from api.db import get_mongodb_connection # Pour MongoDB
-from api.services.db_session import get_db # Pour PostgreSQL via SQLAlchemy
+from api.db import get_mongodb_connection
+from api.services.db_session import get_db
 from api.services.query_helper import build_recipe_query_conditions, get_recipe_sort_criteria, IngredientMatchType, SortCriteria
-from api.services.product_query_helper import _get_product_vector_ids_by_name, _get_linked_product_vector_ids, _fetch_recipes_for_ingredient, _get_processed_products, _aggregate_product_details, get_enriched_recipes_details
+from api.services.product_query_helper import _get_linked_product_vector_ids, _get_product_vector_ids_by_name, _fetch_recipes_for_ingredient, _get_processed_products, _aggregate_product_details, get_enriched_recipes_details
 
 load_dotenv()
 
@@ -65,7 +65,7 @@ async def get_recipes(
     include_details: bool = Query(False, description="Include aggregated nutritional and environmental details for each recipe. This can significantly increase response time."),
     min_linked_similarity_score_for_details: float = Query(0.60, ge=0, le=1, description="When including details: minimum similarity score for linked products (0-1)."),
     min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="When including details: minimum fuzzy similarity for initial ingredient name search (0-1)."),
-    db_pg: Session = Depends(get_db) # Injection de la session SQLAlchemy pour PostgreSQL
+    db_pg: Session = Depends(get_db)
 ):
     """
     Récupère une liste de recettes avec filtres et tris optionnels.
@@ -89,7 +89,7 @@ async def get_recipes(
     mongo_client = get_mongodb_connection()
     if not mongo_client:
         return {"success": False, "message": "Failed to connect to MongoDB", "data": [], "count": 0}
-    try: # MongoDB operations
+    try:
         db_mongo = mongo_client["OpenFoodImpact"]
         collection = db_mongo["recipes"]
 
@@ -118,16 +118,14 @@ async def get_recipes(
 
         if include_details and recipes_data:
             try:
-                # db_pg (Session SQLAlchemy) est déjà injecté et disponible
                 recipes_data = get_enriched_recipes_details(
-                    db_pg, # Utiliser la session SQLAlchemy
+                    db_pg,
                     recipes_data,
                     min_linked_similarity_score_for_details,
                     min_initial_name_similarity_for_details
                 )
             except Exception as e_pg:
                 for r_item in recipes_data: r_item["aggregated_details_error"] = f"Error fetching details: {str(e_pg)}"
-            # Pas besoin de fermer db_pg ici, FastAPI s'en charge via la dépendance get_db
             
         for recipe in recipes_data:
             if "_id" in recipe and isinstance(recipe["_id"], ObjectId):
@@ -196,7 +194,7 @@ async def get_recipe_by_id(
     recipe_id: str = Path(..., description="The MongoDB ObjectId of the recipe."),
     min_linked_similarity_score_for_details: float = Query(0.60, ge=0, le=1, description="Minimum similarity score for linked products (0-1) for ingredient details."),
     min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="Minimum fuzzy similarity for initial ingredient name search (0-1) for ingredient details."),
-    db_pg: Session = Depends(get_db) # Injection de la session SQLAlchemy
+    db_pg: Session = Depends(get_db)
 ):
     """
     Récupère une recette spécifique par son ID MongoDB, avec détails enrichis.
@@ -249,7 +247,6 @@ async def get_recipe_by_id(
     finally:
         if mongo_client:
             mongo_client.close()
-        # db_pg est géré par FastAPI
 
 @router.get(
     "/products",
@@ -302,7 +299,7 @@ async def get_products(
     min_name_similarity: float = Query(0.3, ge=0, le=1, description="Minimum fuzzy similarity score for initial name search (pg_trgm similarity, 0 to 1)"),
     limit: int = Query(20, ge=1, description="Number of products to return"),
     skip: int = Query(0, ge=0, description="Number of products to skip"),
-    db_pg: Session = Depends(get_db) # Injection de la session SQLAlchemy
+    db_pg: Session = Depends(get_db)
 ):
     """
     Récupère les informations de produits liés et les recettes associées pour un nom d'ingrédient.
@@ -320,9 +317,7 @@ async def get_products(
     mongo_client = None
     print("appel requete")
     try:
-        mongo_client = get_mongodb_connection() # Utiliser la fonction centralisée
-
-        # db_pg est déjà disponible via Depends(get_db)
+        mongo_client = get_mongodb_connection()
         normalized_search_name = normalize_name(name_search)
         search_vector = vectorize_name(normalized_search_name)
         

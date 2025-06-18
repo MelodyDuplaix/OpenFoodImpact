@@ -75,7 +75,6 @@ def analyse_product_vector_overlap():
     print("Analyse des produits strictement identiques entre sources :")
     df_exact = pd.read_sql(sql=SQL_ANALYSE, conn) # type: ignore
     print(df_exact.to_string(index=False))
-    # --- PARTIE 2 : fuzzy + vector search ---
     print("\nAnalyse des produits similaires (fuzzy + vector) entre sources:")
     cur.execute("SELECT DISTINCT source FROM product_vector;")
     sources = [row[0] for row in cur.fetchall()]
@@ -173,7 +172,6 @@ def analyse_product_vector_overlap():
             for s2 in sources:
                 if s1 == s2:
                     continue
-                # Echantillon de noms dans s1
                 cur = psycopg2.connect(
                     dbname=os.getenv('POSTGRES_DB', 'postgres'),
                     user=os.getenv('POSTGRES_USER', 'postgres'),
@@ -217,7 +215,7 @@ def analyse_product_vector_overlap():
     df_sample = pd.DataFrame(sample_pairs)
     pdf_path = "docs/comparaison_similarite_sources.pdf"
     with PdfPages(pdf_path) as pdf:
-        fig, axes = plt.subplots(2, 1, figsize=(11.69, 8.27))  # A4 landscape in inches
+        fig, axes = plt.subplots(2, 1, figsize=(11.69, 8.27)) 
         axes[0].axis('off')
         axes[0].set_title('Correspondance exacte entre sources')
         table0 = axes[0].table(cellText=df_exact.values, colLabels=df_exact.columns, loc='center')

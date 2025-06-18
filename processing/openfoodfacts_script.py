@@ -13,7 +13,6 @@ openfoodfact_csv_columns = [
     "nutriscore_score", "nutriscore_grade", "nova_group", "environmental_score_score", "environmental_score_grade",
     "ingredients_text", "ingredients_analysis_tags", "additives_tags"
 ]
-# Liste des colonnes pour la base (avec underscores, SANS countries_tags)
 openfoodfact_columns = [
     "code", "product_name", "brands", "categories", "labels_tags", "packaging_tags", "image_url",
     "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",

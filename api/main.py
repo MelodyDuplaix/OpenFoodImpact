@@ -3,7 +3,7 @@ import time
 from typing import Callable
 from fastapi import FastAPI, Depends, Request, HTTPException
 from routers import secure, public
-from auth import get_current_user # Renamed for clarity
+from auth import get_current_user
 from fastapi import status
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter
@@ -19,7 +19,7 @@ logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(module)s %(
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.db import get_user_by_username, create_user, verify_password, create_access_token
-from api.services.db_session import get_db, init_db # Import get_db and init_db
+from api.services.db_session import get_db, init_db
 
 user_router = APIRouter(prefix="/api/user", tags=["User"])
 
@@ -70,7 +70,7 @@ async def login(body: UserAuthRequest, db: Session = Depends(get_db)):
     if not username or not password:
         return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": "Username and password required"})
     user = get_user_by_username(db, username)
-    if user and verify_password(password, user.password): # user.password is the hashed password
+    if user and verify_password(password, user.password):
         token = create_access_token({"sub": user.username, "user_id": user.id, "user_level": user.user_level})
         return {"user_id": user.id, "username": user.username, "access_token": token, "token_type": "bearer", "user_level": user.user_level, "message": "Login successful"}
     return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": "Invalid credentials"})
@@ -85,11 +85,6 @@ app = FastAPI(
         {"name": "User", "description": "User management routes"}
     ]
 )
-
-@app.on_event("startup")
-async def on_startup():
-    # init_db() # Décommentez pour créer les tables au démarrage si elles n'existent pas.
-    pass # Vous pouvez appeler init_db() ici si nécessaire, mais c'est souvent fait hors ligne.
 
 @app.middleware("http")
 async def add_timer_middleware(request: Request, call_next: Callable):
@@ -117,7 +112,7 @@ app.include_router(
 app.include_router(
     secure.router,
     prefix="/api/secure",
-    dependencies=[Depends(get_current_user)], # Use the renamed dependency
+    dependencies=[Depends(get_current_user)],
     tags=["Secure"]
 )
 app.include_router(user_router)

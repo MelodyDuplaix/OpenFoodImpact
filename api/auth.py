@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from api.db import decode_access_token, get_user_by_username # get_user_by_username will be the new SQLAlchemy version
-from api.services.db_session import get_db # Import the SQLAlchemy session dependency
+from api.db import decode_access_token, get_user_by_username
+from api.services.db_session import get_db
 
 bearer_scheme = HTTPBearer()
 
@@ -28,9 +28,8 @@ def get_current_user(db: Session = Security(get_db), credentials: HTTPAuthorizat
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials"
         )
-    user = get_user_by_username(db, username) # Pass the db session
+    user = get_user_by_username(db, username)
     if user:
-        # user is now an ORM object
         return {"id": user.id, "username": user.username, "user_level": user.user_level}
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
