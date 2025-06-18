@@ -27,18 +27,17 @@ def build_recipe_query_conditions(
     total_time_max: Optional[int]
 ) -> List[dict]:
     """
-    Construit la liste des conditions de filtre pour la requête de recettes MongoDB.
+    Construit les conditions de filtre pour la requête de recettes MongoDB.
 
     Args:
         text_search: Texte pour la recherche full-text.
         ingredients: Liste des ingrédients à inclure.
-        ingredient_match_type: Mode de correspondance pour les ingrédients (ALL ou ANY).
+        ingredient_match_type: Mode de correspondance des ingrédients (ALL ou ANY).
         excluded_ingredients: Liste des ingrédients à exclure.
         category: Catégorie de recette.
         total_time_max: Temps total maximum de préparation.
-
     Returns:
-        Liste des conditions de requête MongoDB.
+        List[dict]: Liste des conditions de requête MongoDB.
     """
     all_conditions = []
 
@@ -78,7 +77,15 @@ def build_recipe_query_conditions(
     return all_conditions
 
 def get_recipe_sort_criteria(sort_by: SortCriteria, text_search: Optional[str]) -> Optional[List[tuple]]:
-    """Détermine les critères de tri pour la requête MongoDB."""
+    """
+    Détermine les critères de tri pour la requête de recettes MongoDB.
+
+    Args:
+        sort_by: Critère de tri (total_time ou score).
+        text_search: Texte de recherche (nécessaire pour trier par score).
+    Returns:
+        Optional[List[tuple]]: Liste des critères de tri MongoDB, ou None.
+    """
     if sort_by == SortCriteria.TOTAL_TIME:
         return [("totalTime", 1)]
     elif sort_by == SortCriteria.SCORE and text_search:

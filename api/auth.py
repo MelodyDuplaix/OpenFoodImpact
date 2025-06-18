@@ -8,6 +8,16 @@ from api.db import decode_access_token, get_user_by_username
 bearer_scheme = HTTPBearer()
 
 def get_user(credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)):
+    """
+    Valide le token JWT et retourne les informations de l'utilisateur.
+
+    Args:
+        credentials (HTTPAuthorizationCredentials): Identifiants d'autorisation Bearer.
+    Returns:
+        dict: Dictionnaire contenant id, username, et user_level de l'utilisateur.
+    Raises:
+        HTTPException: Si le token est invalide ou l'utilisateur n'est pas trouvé.
+    """
     token = credentials.credentials
     payload = decode_access_token(token)
     username = payload.get("sub")

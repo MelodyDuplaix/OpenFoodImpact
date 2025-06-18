@@ -15,16 +15,18 @@ max_number_per_category = 4000
 
 def scrapes_recipe_list():
     """
-    Scrape la liste des recettes depuis Marmiton.
-    
+    Récupère les titres, liens et catégories des recettes depuis Marmiton.
+
+    Args:
+        None
     Returns:
-        list: Liste de dictionnaires contenant les titres et liens des recettes.
+        list: Liste de dictionnaires {'title', 'link', 'category'} pour chaque recette.
     """
     recipes = []
     for recipe_type in recipes_types:
         logging.info(f"Scraping {recipe_type} recipes")
         page = 1
-        category_recipes_count = 0  # Compteur pour chaque catégorie
+        category_recipes_count = 0
         while True:
             url = f"{base_url}{recipe_type}/" if page == 1 else f"{base_url}{recipe_type}/{page}"
             try:
@@ -58,13 +60,12 @@ def scrapes_recipe_list():
 
 def extract_schemaorg_recipe(url):
     """
-    Extrait les données recette d'une URL Marmiton via schema.org JSON-LD.
-    
+    Extrait les données structurées (JSON-LD) d'une recette depuis une URL Marmiton.
+
     Args:
         url (str): URL de la recette Marmiton.
-    
     Returns:
-        dict: Dictionnaire contenant les données de la recette, ou None si non trouvé.
+        dict or None: Dictionnaire des données de la recette, ou None si non trouvé/erreur.
     """
     try:
         response = requests.get(url, timeout=10)
@@ -90,13 +91,12 @@ def extract_schemaorg_recipe(url):
 
 def insert_recipes(recipes):
     """
-    Insère les recettes dans MongoDB.
-    
+    Insère une liste de recettes dans la collection MongoDB.
+
     Args:
-        recipes (list): Liste de dictionnaires contenant les recettes à insérer.
-        
+        recipes (list): Liste de dictionnaires, chaque dictionnaire représentant une recette.
     Returns:
-        None
+        None: Modifie la base de données MongoDB.
     """
     try:
         client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
@@ -117,13 +117,12 @@ def insert_recipes(recipes):
 
 def remove_objectid(data):
     """
-    Retire les champs _id des objets MongoDB (pour export propre).
-    
+    Retire récursivement les champs '_id' d'un dictionnaire ou d'une liste.
+
     Args:
-        data (dict or list): Dictionnaire ou liste de données MongoDB.
-    
+        data (dict or list): Données (potentiellement avec des ObjectId).
     Returns:
-        dict or list: Données sans les champs _id.
+        dict or list: Données avec les champs '_id' retirés.
     """
     if isinstance(data, dict):
         return {k: remove_objectid(v) for k, v in data.items() if k != "_id"}
@@ -134,10 +133,12 @@ def remove_objectid(data):
 
 def extract_all_recipes():
     """
-    Extrait toutes les recettes Marmiton et les insère dans MongoDB.
-    
+    Pipeline complet pour scraper les recettes Marmiton et les insérer dans MongoDB.
+
+    Args:
+        None
     Returns:
-        list: Liste de dictionnaires contenant les recettes extraites.
+        list: Liste des recettes extraites et enrichies.
     """
     start_time = time.time()
     try:

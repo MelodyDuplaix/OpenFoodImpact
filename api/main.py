@@ -22,6 +22,16 @@ class UserAuthRequest(BaseModel):
 
 @user_router.post("/register", response_model=dict)
 async def register(body: UserAuthRequest):
+    """
+    Enregistre un nouvel utilisateur.
+
+    Args:
+        body (UserAuthRequest): Données d'enregistrement (username, password).
+    Returns:
+        dict: Informations sur l'utilisateur et token d'accès en cas de succès.
+    Raises:
+        JSONResponse: En cas d'erreur (champs manquants, utilisateur existant, etc.).
+    """
     username = body.username
     password = body.password
     if not username or not password:
@@ -37,6 +47,16 @@ async def register(body: UserAuthRequest):
 
 @user_router.post("/login", response_model=dict)
 async def login(body: UserAuthRequest):
+    """
+    Connecte un utilisateur existant.
+
+    Args:
+        body (UserAuthRequest): Données de connexion (username, password).
+    Returns:
+        dict: Informations sur l'utilisateur et token d'accès en cas de succès.
+    Raises:
+        JSONResponse: En cas d'échec de l'authentification.
+    """
     username = body.username
     password = body.password
     if not username or not password:
@@ -60,6 +80,15 @@ app = FastAPI(
 
 @app.middleware("http")
 async def add_timer_middleware(request: Request, call_next: Callable):
+    """
+    Middleware pour ajouter un en-tête X-Execution-Time à chaque réponse.
+
+    Args:
+        request (Request): Requête entrante.
+        call_next (Callable): Prochain appel dans le pipeline de la requête.
+    Returns:
+        Response: Réponse avec l'en-tête X-Execution-Time ajouté.
+    """
     start_time = time.time()
     response = await call_next(request)
     end_time = time.time()

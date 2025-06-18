@@ -1,18 +1,16 @@
 
 def find_similar_ingredients(name, source, conn, min_score=0.65):
     """
-    Pour un ingrédient donné (name, source), retourne le produit le plus similaire pour chaque autre source.
-    - Pour greenpeace <-> marmiton/agribalyse : matching exact
-    - Sinon : fuzzy + vector avec score global >= min_score
-    
+    Trouve les produits similaires à un ingrédient donné dans d'autres sources.
+
     Args:
-        name (str): Nom de l'ingrédient à comparer.
-        source (str): Source de l'ingrédient (par exemple, 'greenpeace', 'marmiton', 'agribalyse').
+        name (str): Nom de l'ingrédient de référence.
+        source (str): Source de l'ingrédient de référence.
         conn (psycopg2.extensions.connection): Connexion à la base de données PostgreSQL.
-        min_score (float): Score minimum pour considérer un match comme valide.
-    
+        min_score (float, optional): Score de similarité global minimal. Défaut à 0.65.
     Returns:
-        dict: Dictionnaire avec les sources comme clés et un dictionnaire contenant l'id, le nom et le score comme valeurs.
+        dict: Clés = autres sources, Valeurs = {'id', 'name', 'score'} du meilleur match.
+        Utilise un matching exact pour greenpeace vs (marmiton/agribalyse), sinon fuzzy+vector.
     """
     cur = conn.cursor()
     cur.execute("SELECT DISTINCT source FROM product_vector;")

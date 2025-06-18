@@ -3,13 +3,12 @@ from processing.ingredient_similarity import find_similar_ingredients
 
 def create_ingredient_link_table(conn):
     """
-    Crée la table ingredient_link si elle n'existe pas déjà.
-    
+    Crée la table 'ingredient_link' et ses index si elle n'existe pas.
+
     Args:
         conn (psycopg2.extensions.connection): Connexion à la base de données PostgreSQL.
-        
     Returns:
-        None
+        None: La fonction modifie la base de données directement.
     """
     cur = conn.cursor()
     cur.execute("""
@@ -34,13 +33,12 @@ def create_ingredient_link_table(conn):
 
 def fill_ingredient_links(conn):
     """
-    Remplit la table ingredient_link avec les liens entre ingrédients similaires
-    
+    Remplit la table 'ingredient_link' avec les liens entre ingrédients similaires.
+
     Args:
         conn (psycopg2.extensions.connection): Connexion à la base de données PostgreSQL.
-        
     Returns:
-        None
+        None: La fonction modifie la base de données directement.
     """
     cur = conn.cursor()
     cur.execute("SELECT id, name, source FROM product_vector;")

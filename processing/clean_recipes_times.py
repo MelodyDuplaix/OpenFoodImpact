@@ -7,11 +7,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def convert_iso8601_to_minutes(duration):
-    # Vérifier si la durée est déjà un entier (potentiellement déjà en minutes)
+    """
+    Convertit une durée ISO 8601 (PTxHyM) ou un entier en minutes.
+
+    Args:
+        duration (str or int): Durée à convertir.
+    Returns:
+        int: Durée en minutes, ou 0 si la conversion échoue.
+    """
     if isinstance(duration, int):
         return duration
-    if not isinstance(duration, str): # S'assurer que c'est une chaîne avant d'utiliser re.match
-        return 0 # Ou lever une exception, ou logger une erreur
+    if not isinstance(duration, str):
+        return 0
     match = re.match(r'PT(\d+H)?(\d+M)?', duration)
     if not match:
         return 0
@@ -20,6 +27,14 @@ def convert_iso8601_to_minutes(duration):
     return hours * 60 + minutes
 
 def convert_recipe_times():
+    """
+    Convertit les champs de temps (prepTime, cookTime, totalTime) des recettes MongoDB en minutes.
+
+    Args:
+        None
+    Returns:
+        None: Modifie les documents dans la collection MongoDB.
+    """
     client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"))
     db = client["OpenFoodImpact"]
     collection = db["recipes"]

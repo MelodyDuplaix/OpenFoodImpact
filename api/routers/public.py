@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional # type: ignore
 import os
 from dotenv import load_dotenv
 import sys
-from bson import ObjectId # Add this import
+from bson import ObjectId
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from processing.utils import normalize_name, vectorize_name
@@ -63,24 +63,23 @@ async def get_recipes(
     min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="When including details: minimum fuzzy similarity for initial ingredient name search (0-1).")
 ):
     """
-    Get recipes with optional filtering and sorting parameters.
+    Récupère une liste de recettes avec filtres et tris optionnels.
 
     Args:
-        text_search (Optional[str]): Text to search in title, name, keywords, and description.
-        ingredients (Optional[List[str]]): List of ingredients to search for.
-        ingredient_match_type (IngredientMatchType): 'all' to match all ingredients, 'any' to match at least one. Defaults to 'all'.
-        excluded_ingredients (Optional[List[str]]): List of ingredients to exclude.
-        category (Optional[str]): Recipe category.
-        total_time_max (Optional[int]): Maximum total time in minutes.
-        sort_by (SortCriteria): Sorting criteria (total_time or score).
-        limit (int): Number of recipes to return (default: 20).
-        skip (int): Number of recipes to skip (default: 0).
-        include_details (bool): If True, attempts to fetch and aggregate nutritional and environmental data for ingredients. Defaults to False.
-        min_linked_similarity_score_for_details (float): Used if include_details is True. See /products endpoint for similar parameter.
-        min_initial_name_similarity_for_details (float): Used if include_details is True. See /products endpoint for similar parameter.
-
+        text_search: Texte pour recherche full-text.
+        ingredients: Liste d'ingrédients à inclure.
+        ingredient_match_type: Mode de correspondance des ingrédients ('all' ou 'any').
+        excluded_ingredients: Liste d'ingrédients à exclure.
+        category: Catégorie de recette.
+        total_time_max: Temps total maximum en minutes.
+        sort_by: Critère de tri ('total_time' ou 'score').
+        limit: Nombre de recettes à retourner.
+        skip: Nombre de recettes à sauter.
+        include_details: Inclure les détails nutritionnels et environnementaux agrégés.
+        min_linked_similarity_score_for_details: Score de similarité minimal pour les produits liés (si include_details=True).
+        min_initial_name_similarity_for_details: Similarité minimale pour la recherche initiale de nom d'ingrédient (si include_details=True).
     Returns:
-        dict: A dictionary containing the success status, message, data, and count of recipes.
+        dict: Dictionnaire avec statut, message, données des recettes et nombre total.
     """
     client = get_mongodb_connection()
     if not client:
@@ -114,7 +113,7 @@ async def get_recipes(
 
         if include_details and recipes_data:
             pg_conn = None
-            try: # PostgreSQL operations for enriching details
+            try:
                 pg_conn = get_pg_connection()
                 if pg_conn:
                     recipes_data = get_enriched_recipes_details(
@@ -126,20 +125,14 @@ async def get_recipes(
                 else:
                     for r_item in recipes_data: r_item["aggregated_details_error"] = "Could not connect to PostgreSQL for details."
             except Exception as e_pg:
-                print(f"Error enriching recipes with PostgreSQL details: {e_pg}")
                 for r_item in recipes_data: r_item["aggregated_details_error"] = f"Error fetching details: {str(e_pg)}"
             finally:
                 if pg_conn:
                     pg_conn.close()
-        elif include_details and not recipes_data:
-            # No recipes found, no need to attempt enrichment
-            pass
 
-        # Convert ObjectId to string for JSON serialization
         for recipe in recipes_data:
             if "_id" in recipe and isinstance(recipe["_id"], ObjectId):
                 recipe["_id"] = str(recipe["_id"])
-
         return {
             "success": True,
             "message": "Recipes retrieved successfully",
@@ -205,6 +198,18 @@ async def get_recipe_by_id(
     min_linked_similarity_score_for_details: float = Query(0.60, ge=0, le=1, description="Minimum similarity score for linked products (0-1) for ingredient details."),
     min_initial_name_similarity_for_details: float = Query(0.25, ge=0, le=1, description="Minimum fuzzy similarity for initial ingredient name search (0-1) for ingredient details.")
 ):
+    """
+    Récupère une recette spécifique par son ID MongoDB, avec détails enrichis.
+
+    Args:
+        recipe_id: ID ObjectId de la recette MongoDB.
+        min_linked_similarity_score_for_details: Score de similarité minimal pour les produits liés lors de l'enrichissement.
+        min_initial_name_similarity_for_details: Similarité minimale pour la recherche initiale de nom d'ingrédient lors de l'enrichissement.
+    Returns:
+        dict: Dictionnaire avec statut, message et données de la recette.
+    Raises:
+        HTTPException: Si la connexion échoue, l'ID est invalide, ou la recette n'est pas trouvée.
+    """
     mongo_client = get_mongodb_connection()
     pg_conn = None
 
@@ -225,11 +230,8 @@ async def get_recipe_by_id(
         if not recipe_data:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
 
-        # Convert ObjectId to string for JSON serialization before enrichment
         if "_id" in recipe_data and isinstance(recipe_data["_id"], ObjectId):
             recipe_data["_id"] = str(recipe_data["_id"])
-
-        # Enrich with ingredient details
         try:
             pg_conn = get_pg_connection()
             if pg_conn:
@@ -241,15 +243,13 @@ async def get_recipe_by_id(
             else:
                 recipe_data["aggregated_details_error"] = "Could not connect to PostgreSQL for ingredient details."
         except Exception as e_pg:
-            print(f"Error enriching recipe {recipe_id} with PostgreSQL details: {e_pg}") # For server logs
             recipe_data["aggregated_details_error"] = f"Error fetching ingredient details: {str(e_pg)}"
         
         return {"success": True, "message": "Recipe retrieved successfully", "data": recipe_data}
 
-    except HTTPException: # Re-raise HTTPException
+    except HTTPException:
         raise
     except Exception as e:
-        print(f"Unexpected error in get_recipe_by_id for {recipe_id}: {e}") # For server logs
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred: {str(e)}")
     finally:
         if mongo_client:
@@ -310,7 +310,17 @@ async def get_products(
     skip: int = Query(0, ge=0, description="Number of products to skip")
 ):
     """
-    Get product information linked across sources and associated recipes for a given ingredient name.
+    Récupère les informations de produits liés et les recettes associées pour un nom d'ingrédient.
+
+    Args:
+        name_search: Nom de l'ingrédient à rechercher (obligatoire).
+        min_similarity_score: Score de similarité minimal pour les produits liés (table ingredient_link).
+        min_name_similarity: Score de similarité minimal pour la recherche initiale de nom (pg_trgm).
+        limit: Nombre de produits à retourner.
+        skip: Nombre de produits à sauter.
+    Returns:
+        dict: Dictionnaire avec statut, message, données des produits et recettes, et nombre.
+
     """
     pg_conn = None
     mongo_client = None
@@ -368,7 +378,6 @@ async def get_products(
             "count": len(associated_recipes)
         }
     except Exception as e:
-        print(f"Error in /products endpoint: {str(e)}")
         return {"success": False, "message": f"An error occurred: {str(e)}", "data": None, "count": 0}
     finally:
         if pg_conn:

@@ -6,8 +6,16 @@ from psycopg2.extras import DictCursor # type: ignore
 import pymongo # type: ignore
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'processing'))
 from processing.utils import normalize_name, vectorize_name
-from processing.utils import DEFAULT_QUANTITY_GRAMS # Importer la constante
+from processing.utils import DEFAULT_QUANTITY_GRAMS
 def get_pg_connection():
+    """
+    Établit une connexion à la base de données PostgreSQL.
+
+    Args:
+        None
+    Returns:
+        psycopg2.extensions.connection: Objet de connexion à la base de données.
+    """
     return psycopg2.connect(
         dbname=os.getenv('POSTGRES_DB', 'postgres'),
         user=os.getenv('POSTGRES_USER', 'postgres'),
@@ -18,6 +26,14 @@ def get_pg_connection():
     )
 
 def get_mongo_client_connection():
+    """
+    Établit une connexion client à MongoDB.
+
+    Args:
+        None
+    Returns:
+        pymongo.MongoClient: Client MongoDB.
+    """
     return pymongo.MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=5000)
 
 
@@ -27,7 +43,14 @@ def _get_product_vector_ids_by_name(
     min_name_similarity: float
 ) -> Set[int]:
     """
-    Trouve les IDs initiaux de product_vector basés sur une correspondance de nom floue.
+    Récupère les IDs de product_vector par similarité de nom.
+
+    Args:
+        conn: Connexion à la base de données PostgreSQL.
+        normalized_name_search: Nom normalisé pour la recherche.
+        min_name_similarity: Score de similarité de nom minimal.
+    Returns:
+        Set[int]: Ensemble d'IDs de product_vector correspondants.
     """
     if not normalized_name_search:
         return set()
@@ -50,9 +73,17 @@ def _get_linked_product_vector_ids(
     conn: psycopg2.extensions.connection,
     initial_ids: Set[int],
     min_similarity_score: float
-) -> Dict[int, Dict[str, Any]]: # Retourne un dict: {initial_pv_id: {source_liee: {id: id_lie, name: nom_lie, score: score_lien}}}
+) -> Dict[int, Dict[str, Any]]:
     """
-    Pour chaque ID initial, trouve le MEILLEUR ID de product_vector lié dans CHAQUE AUTRE source,
+    Trouve les meilleurs IDs de product_vector liés pour chaque ID initial.
+
+    Args:
+        conn: Connexion à la base de données PostgreSQL.
+        initial_ids: Ensemble d'IDs de product_vector initiaux.
+        min_similarity_score: Score de similarité minimal pour les liens.
+    Returns:
+        Dict[int, Dict[str, Any]]: Dictionnaire des meilleurs liens par ID initial.
+        Le format est {initial_pv_id: {source_liee: {id: id_lie, name: nom_lie, score: score_lien}}}.
     """
     if not initial_ids:
         return {}
@@ -65,7 +96,7 @@ def _get_linked_product_vector_ids(
                 "SELECT id, name, source, name_vector FROM product_vector WHERE id = ANY(%s)",
                 (list(initial_ids),)
             )
-            initial_products_data = {row['id']: row for row in cur.fetchall()} #type: ignore
+            initial_products_data = {row['id']: row for row in cur.fetchall()} # type: ignore
 
             cur.execute("SELECT DISTINCT source FROM product_vector;")
             all_db_sources = [row['source'] for row in cur.fetchall()] # type: ignore
@@ -79,7 +110,6 @@ def _get_linked_product_vector_ids(
                     if other_source_in_db == current_initial_source:
                         continue
 
-                    # Requête combinée pour trouver le meilleur lien dans les deux sens
                     cur.execute("""
                         WITH potential_links AS (
                             (SELECT il.id_linked, pv.name as linked_name, il.score
@@ -124,7 +154,13 @@ def _fetch_product_details(
     product_vector_ids: Set[int]
 ) -> List[Dict[str, Any]]:
     """
-    Récupère les données détaillées de product_vector et des tables spécifiques à la source.
+    Récupère les détails des produits depuis product_vector et les tables sources.
+
+    Args:
+        conn: Connexion à la base de données PostgreSQL.
+        product_vector_ids: Ensemble d'IDs de product_vector à récupérer.
+    Returns:
+        List[Dict[str, Any]]: Liste de dictionnaires contenant les détails des produits.
     """
     if not product_vector_ids:
         return []
@@ -179,8 +215,15 @@ def _calculate_similarity_to_search_term(
     search_vector: List[float]
 ) -> float:
     """
-    Calcule le score de similarité combiné (flou + vectoriel) d'un produit
-    par rapport au terme de recherche normalisé et à son vecteur.
+    Calcule le score de similarité combiné d'un produit par rapport à un terme de recherche.
+
+    Args:
+        conn: Connexion à la base de données PostgreSQL.
+        product_vector_id: ID du produit dans product_vector.
+        normalized_search_name: Nom de recherche normalisé.
+        search_vector: Vecteur du nom de recherche.
+    Returns:
+        float: Score de similarité global.
     """
     score = 0.0
     with conn.cursor() as cur:
@@ -207,7 +250,15 @@ def _fetch_recipes_for_ingredient(
     skip: int = 0
 ) -> List[Dict[str, Any]]:
     """
-    Récupère les recettes de MongoDB qui contiennent le nom d'ingrédient normalisé donné.
+    Récupère les recettes MongoDB contenant un ingrédient normalisé spécifique.
+
+    Args:
+        mongo_client: Client MongoDB.
+        normalized_ingredient_name: Nom d'ingrédient normalisé à rechercher.
+        limit: Nombre maximum de recettes à retourner.
+        skip: Nombre de recettes à sauter.
+    Returns:
+        List[Dict[str, Any]]: Liste des recettes correspondantes.
     """
     if not mongo_client or not normalized_ingredient_name:
         return []
@@ -233,8 +284,15 @@ def _get_processed_products(
     search_vector: List[float]
 ) -> List[Dict[str, Any]]:
     """
-    Récupère les détails des produits, calcule les scores de similarité,
-    filtre pour le meilleur produit par source et trie la liste finale.
+    Traite une liste d'IDs de produits pour obtenir une liste finale de produits enrichis et triés.
+
+    Args:
+        conn: Connexion à la base de données PostgreSQL.
+        all_unique_pv_ids_to_fetch: Ensemble d'IDs de product_vector uniques à traiter.
+        normalized_search_name: Nom de recherche normalisé.
+        search_vector: Vecteur du nom de recherche.
+    Returns:
+        List[Dict[str, Any]]: Liste finale des produits traités et triés.
     """
     if not all_unique_pv_ids_to_fetch:
         return []
@@ -265,8 +323,13 @@ def _aggregate_product_details(
     final_products_list: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
-    Agrège les détails des produits à partir de la liste finale des produits,
-    en gérant les conflits de clés en préfixant avec la source.
+    Agrège les détails d'une liste de produits en un seul dictionnaire.
+
+    Args:
+        final_products_list: Liste des produits finaux avec leurs détails.
+    Returns:
+        Dict[str, Any]: Dictionnaire global agrégeant les détails des produits.
+        Les clés conflictuelles sont préfixées par la source du produit.
     """
     global_details_aggregator: Dict[str, Any] = {}
     excluded_keys_for_global_details = [
@@ -291,8 +354,15 @@ def _get_details_for_single_ingredient(
     min_initial_name_similarity: float
 ) -> Dict[str, Any]:
     """
-    Récupère les détails agrégés pour UN SEUL ingrédient en cherchant ses
-    correspondances dans product_vector et en agrégeant les infos des sources liées.
+    Récupère et agrège les détails pour un seul ingrédient.
+
+    Args:
+        pg_conn: Connexion à la base de données PostgreSQL.
+        ingredient_name: Nom de l'ingrédient (normalisé) à rechercher.
+        min_linked_similarity_score: Score de similarité minimal pour les produits liés.
+        min_initial_name_similarity: Score de similarité minimal pour la recherche initiale du nom.
+    Returns:
+        Dict[str, Any]: Dictionnaire des détails agrégés pour l'ingrédient.
     """
     search_vector = vectorize_name(ingredient_name)
     initial_pv_ids = _get_product_vector_ids_by_name(pg_conn, ingredient_name, min_initial_name_similarity)
@@ -321,20 +391,25 @@ def _get_details_for_single_ingredient(
         return {}
 
     ingredient_aggregated_details = _aggregate_product_details(processed_products_for_ingredient)
-    # Ajouter le nom original normalisé pour lequel la recherche a été faite, pour le mapping futur
     ingredient_aggregated_details["original_normalized_search_name"] = ingredient_name
     return ingredient_aggregated_details
 
 
 def _aggregate_details_for_recipe(
-    ingredient_details_cache: Dict[str, Dict[str, Any]], # Cache des détails par nom normalisé
-    recipe_parsed_ingredients: List[Dict[str, Any]] # Vient de la recette MongoDB, avec qtés parsées
+    ingredient_details_cache: Dict[str, Dict[str, Any]],
+    recipe_parsed_ingredients: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
-    Agrège les détails de plusieurs ingrédients pour obtenir les détails globaux d'une recette.
-    Les valeurs nutritionnelles et environnementales sont sommées en pondérant par les quantités.
-    'months_in_season' est une intersection/union des mois disponibles.
+    Agrège les détails des ingrédients d'une recette pour obtenir ses détails globaux.
+
+    Args:
+        ingredient_details_cache: Cache des détails d'ingrédients (clé: nom normalisé).
+        recipe_parsed_ingredients: Liste des ingrédients parsés de la recette (avec quantités).
+    Returns:
+        Dict[str, Any]: Dictionnaire des détails agrégés pour la recette.
+        Les valeurs sont pondérées par les quantités d'ingrédients.
     """
+
     recipe_details: Dict[str, Any] = {}
     summable_fields = [
         "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g",
@@ -354,35 +429,21 @@ def _aggregate_details_for_recipe(
 
     all_months_lists: List[List[str]] = []
     processed_ingredients_with_details_count = 0
-    # total_recipe_weight_g = 0 # Si on veut normaliser par 100g de recette totale
 
     for ing_from_recipe in recipe_parsed_ingredients:
-        # ing_from_recipe est un dict de parse_ingredient_details_fr_en
-        # ex: {"raw_text": "2 pommes", "quantity_str": "2", ..., 
-        #      "parsed_name": "pommes", "quantity_grams": 260, 
-        #      "normalized_name_for_matching": "pomme"}
-        
         normalized_name_key = ing_from_recipe.get("normalized_name_for_matching")
         if not normalized_name_key:
             continue
 
         ing_details_from_cache = ingredient_details_cache.get(normalized_name_key)
-        if not ing_details_from_cache or not isinstance(ing_details_from_cache, dict): # Peut être {}
+        if not ing_details_from_cache or not isinstance(ing_details_from_cache, dict):
             continue
         
         processed_ingredients_with_details_count += 1
         
-        # Utiliser la quantité en grammes parsée, ou une valeur par défaut si non disponible mais que l'ingrédient est listé
         quantity_grams = ing_from_recipe.get("quantity_grams")
-        if quantity_grams is None: # Si parse_ingredient_details_fr_en n'a pas pu déterminer de grammes
-            # Si une quantity_str existe (ex: "1" pour "1 oignon"), on pourrait utiliser DEFAULT_QUANTITY_GRAMS
-            # Sinon, si pas de quantity_str, on pourrait ignorer ou utiliser un poids très faible.
-            # Pour l'instant, si quantity_grams est None, on utilise DEFAULT_QUANTITY_GRAMS
-            # si l'ingrédient semble avoir une quantité implicite (ex: "sel" vs "1 oignon")
-            # C'est complexe. Simplifions : si quantity_grams est None, on prend DEFAULT_QUANTITY_GRAMS.
+        if quantity_grams is None:
             quantity_grams = DEFAULT_QUANTITY_GRAMS
-
-        # total_recipe_weight_g += quantity_grams
 
         for field in summable_fields:
             value_per_100g = ing_details_from_cache.get(field)
@@ -396,7 +457,7 @@ def _aggregate_details_for_recipe(
         common_months = set(all_months_lists[0])
         for month_list in all_months_lists[1:]:
             common_months.intersection_update(month_list)
-        if common_months:
+        if common_months: # type: ignore
             recipe_details["months_in_season"] = sorted(list(common_months))
         else: # Pas de mois en commun, on prend l'union de tous les mois
             union_months = set()
@@ -424,28 +485,30 @@ def get_enriched_recipes_details(
 ) -> List[Dict[str, Any]]:
     """
     Enrichit une liste de recettes avec les détails agrégés de leurs ingrédients.
+
+    Args:
+        pg_conn: Connexion à la base de données PostgreSQL.
+        recipes: Liste de recettes (dictionnaires) à enrichir.
+        min_linked_similarity_score: Score de similarité minimal pour les produits liés.
+        min_initial_name_similarity: Score de similarité minimal pour la recherche initiale du nom.
+    Returns:
+        List[Dict[str, Any]]: Liste des recettes enrichies.
     """
-    # 1. Collecter tous les ingrédients normalisés uniques (normalized_name_for_matching)
-    #    à partir des `parsed_ingredients_details` de toutes les recettes demandées.
     all_unique_normalized_ingredients_to_fetch = set()
     for recipe in recipes:
-        # Le champ recipe.get("parsed_ingredients_details") doit exister suite au parsing lors de l'ETL
         parsed_ingredients_list = recipe.get("parsed_ingredients_details", [])
         if parsed_ingredients_list:
             for ing_detail in parsed_ingredients_list:
-                # ing_detail est un dict comme retourné par parse_ingredient_details_fr_en
                 normalized_name_key = ing_detail.get("normalized_name_for_matching")
                 if normalized_name_key:
                     all_unique_normalized_ingredients_to_fetch.add(normalized_name_key)
 
-    # 2. Récupérer les détails pour chaque ingrédient unique et les mettre en cache
-    #    La clé du cache sera `normalized_name_for_matching`.
     ingredient_details_cache: Dict[str, Dict[str, Any]] = {}
     if pg_conn and all_unique_normalized_ingredients_to_fetch:
         for ing_key_name in all_unique_normalized_ingredients_to_fetch:
             details = _get_details_for_single_ingredient(
                 pg_conn,
-                ing_key_name, # C'est ce nom qui est cherché dans product_vector
+                ing_key_name,
                 min_linked_similarity_score,
                 min_initial_name_similarity
             )
@@ -455,11 +518,9 @@ def get_enriched_recipes_details(
     enriched_recipes_list = []
     for recipe in recipes:
         current_recipe_enriched = recipe.copy()
-        # Récupérer les ingrédients parsés de la recette (qui contiennent les quantités)
         recipe_parsed_ingredients = current_recipe_enriched.get("parsed_ingredients_details", [])
 
         if recipe_parsed_ingredients and ingredient_details_cache:
-            # Passer le cache complet et la liste des ingrédients parsés de CETTE recette
             current_recipe_enriched["aggregated_details"] = _aggregate_details_for_recipe(
                 ingredient_details_cache,
                 recipe_parsed_ingredients

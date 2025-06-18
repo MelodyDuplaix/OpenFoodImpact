@@ -5,9 +5,7 @@ import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processing.utils import get_db_connection, safe_execute, normalize_name, vectorize_name
 
-# openfoodfacts_url = "https://fr.openfoodfacts.org/data/fr.openfoodfacts.org.products.csv"
 openfoodfacts_url = "data/fr.openfoodfacts.org.products.csv"
-# Liste des colonnes du CSV (avec tirets pour les colonnes concernées)
 openfoodfact_csv_columns = [
     "code", "product_name", "brands", "categories", "labels_tags", "packaging_tags", "countries_tags", "image_url",
     "energy-kcal_100g", "fat_100g", "saturated-fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
@@ -25,12 +23,12 @@ openfoodfact_columns = [
 
 def extract_openfoodfacts_chunks():
     """
-    Extrait des chunks de données du dataset OpenFoodFacts.
+    Lit le fichier CSV OpenFoodFacts par chunks.
 
     Args:
-        Aucun
+        None
     Returns:
-        generator: Générateur de DataFrame pandas (par chunk)
+        generator: Générateur de DataFrames pandas, chacun représentant un chunk du CSV.
     """
     rename_map = {
         "energy-kcal_100g": "energy_kcal_100g",
@@ -48,13 +46,12 @@ def extract_openfoodfacts_chunks():
 
 def load_openfoodfacts_chunk_to_db(chunk):
     """
-    Insère un chunk de données OpenFoodFacts dans la base PostgreSQL, avec nettoyage et gestion d'erreurs.
-    Enrichi : insère aussi dans product_vector avec nom normalisé et vectorisé.
+    Charge un chunk de données OpenFoodFacts dans la base PostgreSQL.
 
     Args:
-        chunk (pd.DataFrame): Chunk de données à insérer
+        chunk (pd.DataFrame): DataFrame contenant un chunk de données OpenFoodFacts.
     Returns:
-        None
+        None: Modifie la base de données.
     """
     conn = get_db_connection()
     if conn is None:
@@ -68,11 +65,9 @@ def load_openfoodfacts_chunk_to_db(chunk):
     insert_rows = []
     for _, row in chunk.iterrows():
         try:
-            # Remplacer 'unknown' et 'not-applicable' par None dans les champs _grade
             for col in row.index:
                 if col.endswith('_grade') and str(row[col]).lower() in ['unknown', 'not-applicable']:
                     row[col] = None
-            # Sauter les lignes qui sont vides à plus de 80%
             if row.isna().mean() > 0.8:
                 continue
             if not isinstance(row.get('countries_tags'), str) or 'en:france' not in row['countries_tags']:
@@ -81,7 +76,6 @@ def load_openfoodfacts_chunk_to_db(chunk):
             code = row.get('code')
             if not isinstance(name, str) or not name.strip() or not code:
                 continue
-            # Normalisation et vectorisation du nom
             name_normalized = normalize_name(name.strip())
             name_vector = vectorize_name(name_normalized)
             try:
@@ -136,12 +130,12 @@ def load_openfoodfacts_chunk_to_db(chunk):
 
 def etl_openfoodfacts():
     """
-    Pipeline ETL complet pour OpenFoodFacts (extraction, transformation, chargement).
+    Exécute le pipeline ETL complet pour les données OpenFoodFacts.
 
     Args:
-        Aucun
-    Returns:
         None
+    Returns:
+        None: Les données sont extraites et chargées dans la base.
     """
     chunk_count = 0
     for chunk in extract_openfoodfacts_chunks():

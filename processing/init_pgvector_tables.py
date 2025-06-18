@@ -23,11 +23,9 @@ def init_db():
         UNIQUE (name, source)
     );''') # type: ignore
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_name ON product_vector (name);")
-    # Index GIN pour la recherche de similarité textuelle (pg_trgm)
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_gin_product_vector_name ON product_vector USING gin (name gin_trgm_ops);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_source ON product_vector (source);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_code_source ON product_vector (code_source);")
-    # Index HNSW pour la recherche de similarité vectorielle (pgvector) - cosine distance
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_hnsw_product_vector_name_vector ON product_vector USING hnsw (name_vector vector_cosine_ops);")
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS agribalyse (

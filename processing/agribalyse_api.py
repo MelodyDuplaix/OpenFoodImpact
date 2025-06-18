@@ -17,12 +17,12 @@ agribalyse_cols = [
 
 def extract_agribalyse_data():
     """
-    Extrait toutes les données Agribalyse depuis l'API.
+    Extrait toutes les données Agribalyse paginées depuis l'API ADEME.
 
     Args:
-        Aucun
+        None
     Returns:
-        list: Liste des enregistrements bruts de l'API
+        list: Liste des enregistrements Agribalyse bruts, ou liste vide en cas d'erreur.
     """
     all_data = []
     try:
@@ -43,12 +43,12 @@ def extract_agribalyse_data():
 
 def transform_agribalyse_record(record):
     """
-    Transforme un enregistrement brut Agribalyse selon le mapping projet.
+    Mappe les clés d'un enregistrement Agribalyse brut vers les noms de colonnes définis.
 
     Args:
-        record (dict): Enregistrement brut de l'API
+        record (dict): Dictionnaire représentant un enregistrement Agribalyse brut.
     Returns:
-        dict: Enregistrement nettoyé et mappé
+        dict: Dictionnaire avec les clés mappées.
     """
     return {AGRIBALYSE_MAPPING.get(k, k): v for k, v in record.items()}
 
@@ -57,9 +57,9 @@ def load_agribalyse_data_to_db(agribalyse_data):
     Charge les données Agribalyse dans la base de données avec gestion d'erreurs.
 
     Args:
-        agribalyse_data (list): Liste des enregistrements nettoyés
+        agribalyse_data (list): Liste de dictionnaires, chaque dictionnaire étant un enregistrement Agribalyse.
     Returns:
-        None
+        None: La fonction insère des données dans la base de données.
     """
     conn = get_db_connection()
     if conn is None:
@@ -114,12 +114,12 @@ def load_agribalyse_data_to_db(agribalyse_data):
 
 def etl_agribalyse():
     """
-    Pipeline ETL complet pour Agribalyse (extraction, transformation, chargement).
+    Exécute le pipeline ETL complet pour les données Agribalyse.
 
     Args:
-        Aucun
-    Returns:
         None
+    Returns:
+        None: Les données sont extraites, transformées et chargées dans la base.
     """
     raw_data = extract_agribalyse_data()
     if raw_data:
@@ -127,23 +127,23 @@ def etl_agribalyse():
 
 def get_agribalyse_data():
     """
-    Alias pour extract_agribalyse_data (compatibilité).
+    Récupère les données brutes d'Agribalyse (alias pour extract_agribalyse_data).
 
     Args:
-        Aucun
+        None
     Returns:
-        list: Liste des enregistrements bruts de l'API
+        list: Liste des enregistrements Agribalyse bruts.
     """
     return extract_agribalyse_data()
 
 def insert_agribalyse_data_to_db(agribalyse_data):
     """
-    Alias pour load_agribalyse_data_to_db (compatibilité).
+    Charge les données Agribalyse dans la base (alias pour load_agribalyse_data_to_db).
 
     Args:
-        agribalyse_data (list): Liste des enregistrements nettoyés
+        agribalyse_data (list): Liste des enregistrements Agribalyse à charger.
     Returns:
-        None
+        None: Les données sont insérées dans la base.
     """
     load_agribalyse_data_to_db(agribalyse_data)
 

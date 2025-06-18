@@ -7,8 +7,12 @@ greenpeace_url = "https://www.greenpeace.fr/guetteur/calendrier/"
 
 def scrape_greenpeace_calendar():
     """
-    Scrape le calendrier des saisons fruits/légumes Greenpeace.
-    Retourne un dictionnaire mois -> liste de produits.
+    Récupère le calendrier des fruits et légumes de saison depuis Greenpeace.
+
+    Args:
+        None
+    Returns:
+        dict: Dictionnaire {mois: [produits]}, ou {} en cas d'erreur.
     """
     try:
         response = requests.get(greenpeace_url)
@@ -30,8 +34,12 @@ def scrape_greenpeace_calendar():
 
 def vectorize_product_name(name):
     """
-    Vectorise le nom d'un produit avec sentence-transformers.
-    Retourne une liste de floats.
+    Vectorise un nom de produit en utilisant un modèle SentenceTransformer.
+
+    Args:
+        name (str): Nom du produit à vectoriser.
+    Returns:
+        list: Liste de flottants représentant le vecteur du nom.
     """
     if not hasattr(vectorize_product_name, "model"):
         vectorize_product_name.model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -40,7 +48,12 @@ def vectorize_product_name(name):
 
 def insert_season_data_to_db(season_data):
     """
-    Insère les données de saisonnalité Greenpeace dans la base PostgreSQL.
+    Insère les données de saisonnalité Greenpeace dans product_vector et greenpeace_season.
+
+    Args:
+        season_data (dict): Dictionnaire {mois: [produits]} scrapé.
+    Returns:
+        None: Modifie la base de données.
     """
     conn = get_db_connection()
     if conn is None:
@@ -49,7 +62,6 @@ def insert_season_data_to_db(season_data):
     cur = conn.cursor()
     for month, items in season_data.items():
         for name in items:
-            try:
                 name_normalized = normalize_name(name)
                 name_vector = vectorize_name(name_normalized)
                 safe_execute(cur, """
@@ -71,10 +83,7 @@ def insert_season_data_to_db(season_data):
                     INSERT INTO greenpeace_season (product_vector_id, month)
                     VALUES (%s, %s)
                     ON CONFLICT DO NOTHING;
-                """, (product_vector_id, month))
-            except Exception as e:
-                print(f"Erreur insertion greenpeace_season : {e}")
-                continue
+                """, (product_vector_id, month))            
     conn.commit()
     cur.close()
     conn.close()

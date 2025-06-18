@@ -1,4 +1,7 @@
-"""Centralized column mappings for ETL scripts."""
+"""
+Mappages centralisés des noms de colonnes pour les scripts ETL.
+Permet de traduire les noms de colonnes des sources externes vers les noms utilisés dans la base de données.
+"""
 
 AGRIBALYSE_MAPPING = {
     "Écotoxicité_pour_écosystèmes_aquatiques_d'eau_douce": "ecotoxicite_eau_douce",

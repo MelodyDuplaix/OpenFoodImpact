@@ -4,7 +4,12 @@ import os
 
 def null_percent_report():
     """
-    Génère un rapport sur le pourcentage de valeurs NULL dans les colonnes des tables de la base de données PostgreSQL.
+    Génère un rapport sur le pourcentage de valeurs NULL par colonne et par ligne.
+
+    Args:
+        None
+    Returns:
+        None: Affiche des informations dans la console et sauvegarde un rapport CSV.
     """
     conn = psycopg2.connect(
         dbname=os.getenv('POSTGRES_DB', 'postgres'),
@@ -61,7 +66,6 @@ def null_percent_report():
         n_cols = len(colnames)
         n_80pct_empty = 0
         for row in rows:
-            n_null = sum(1 for v in row if v is None)
             if n_cols > 0 and n_null / n_cols >= 0.8:
                 n_80pct_empty += 1
         pct_80pct_empty = 100 * n_80pct_empty / len(rows) if rows else 0
