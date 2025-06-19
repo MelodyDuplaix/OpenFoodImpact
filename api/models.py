@@ -1,8 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
 class Recipe(BaseModel):
-    id: Optional[int] = None
+    id: Optional[str] = Field(default=None, description="MongoDB ObjectId as string")
     title: str
     link: Optional[str] = None
     recipeCategory: Optional[str] = None

@@ -11,6 +11,8 @@ import os
 import sys
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from fastapi import Body
+from pymongo import MongoClient
 
 import logging
 logger = logging.getLogger(__name__)
@@ -20,6 +22,13 @@ logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(module)s %(
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.db import get_user_by_username, create_user, verify_password, create_access_token
 from api.services.db_session import get_db, init_db
+from api.schemas.recipe import RecipeCreate
+from processing.utils import normalize_name, parse_ingredient_details_fr_en
+from api.sql_models import ProductVector
+from api.services.product_creation import update_ingredient_links
+from processing.utils import get_db_connection as get_psycopg2_connection
+from processing.ingredient_similarity import find_similar_ingredients
+from processing.build_ingredient_links import create_ingredient_link_table
 
 user_router = APIRouter(prefix="/api/user", tags=["User"])
 
@@ -113,7 +122,6 @@ app.include_router(
     secure.router,
     prefix="/api/secure",
     dependencies=[Depends(get_current_user)],
-    tags=["Updates"],
 )
 app.include_router(user_router)
 

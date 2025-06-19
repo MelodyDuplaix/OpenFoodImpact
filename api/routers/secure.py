@@ -36,7 +36,7 @@ logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(module)s %(
 
 router = APIRouter()
 
-@router.get("/", response_model=Dict[str, str], tags=["User"])
+@router.get("/", response_model=Dict[str, str], tags=["User"], summary="Get user info", description="Retrieve authenticated user information.")
 async def get_testroute(user: dict = Depends(get_current_user)):
     """
     Secured test route to check user authentication.  
@@ -48,19 +48,95 @@ async def get_testroute(user: dict = Depends(get_current_user)):
     """
     return user
 
-@router.post("/recipe", response_model=Recipe, deprecated=True, summary="Placeholder for recipe creation", tags=["Updates"])
-async def create_recipe(recipe_data: Recipe):
+@router.post("/recipe", response_model=Recipe, tags=["Updates"], summary="Create a new recipe", description="Add a new recipe to MongoDB, normalizing and linking ingredients to product sources.")
+async def create_recipe(
+    recipe_data: Recipe,
+    db_sqla: Session = Depends(get_db)
+):
     """
-    Create a new recipe (placeholder).  
+    Add a new recipe to MongoDB, normalizing and linking ingredients to product sources.  
+    For each ingredient, normalization and parsing is performed, and if the normalized name does not exist in product_vector, it is created and ingredient links are updated.  
+    If a recipe with the same name already exists in MongoDB, return its id and a warning message.  
     
     Args:  
-        recipe_data (Recipe): Recipe data to create.  
+        recipe_data (Recipe): The recipe to insert.  
+        db_sqla (Session): SQLAlchemy session dependency.  
     Returns:  
-        Recipe: The created recipe (currently not implemented).  
+        Recipe: The inserted recipe, including normalized and parsed ingredients, with id set to the MongoDB id.  
     """
-    pass
+    from pymongo import MongoClient
+    from processing.utils import parse_ingredient_details_fr_en
+    mongo_client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+    db_mongo = mongo_client[os.getenv("MONGODB_DB", "OpenFoodImpact")]
+    collection = db_mongo["recipes"]
+    # Vérification existence recette
+    existing = collection.find_one({"title": recipe_data.title})
+    if existing:
+        mongo_id = str(existing.get("_id"))
+        mongo_client.close()
+        recipe_dict = recipe_data.dict(by_alias=True)
+        recipe_dict["id"] = mongo_id
+        return {**recipe_dict, "message": f"Recipe already exists with this title. Returning existing id."}
+    normalized_ingredients = []
+    parsed_ingredients_details = []
+    ingredients = recipe_data.recipeIngredient or []
+    for ing in ingredients:
+        parsed = parse_ingredient_details_fr_en(ing)
+        norm_name = normalize_name(parsed.get("parsed_name") or ing)
+        parsed["normalized_name_for_matching"] = norm_name
+        normalized_ingredients.append(norm_name)
+        parsed_ingredients_details.append(parsed)
+        existing_pv = db_sqla.query(ProductVector).filter(ProductVector.name == norm_name).first()
+        if not existing_pv:
+            new_pv = ProductVector(name=norm_name, name_vector=None, source="manual", code_source=None)
+            db_sqla.add(new_pv)
+            db_sqla.commit()
+            db_sqla.refresh(new_pv)
+            update_ingredient_links(
+                new_pv.id, # type: ignore
+                norm_name,
+                "manual",
+                find_similar_ingredients,
+                get_psycopg2_connection,
+                create_ingredient_link_table,
+                logger
+            )
+    recipe_dict = recipe_data.dict(by_alias=True)
+    recipe_dict["normalized_ingredients"] = normalized_ingredients
+    recipe_dict["parsed_ingredients_details"] = parsed_ingredients_details
+    result = collection.insert_one(recipe_dict)
+    mongo_id = str(result.inserted_id)
+    mongo_client.close()
+    recipe_dict["id"] = mongo_id
+    return recipe_dict
 
-@router.post("/product", response_model=ProductCreationResponse, tags=["Updates"])
+@router.post(
+    "/product",
+    response_model=ProductCreationResponse,
+    tags=["Updates"],
+    summary="Create or update a product and its associated data",
+    description="Create or update a product (ProductVector) and its associated data (Agribalyse, OpenFoodFacts, Greenpeace) in a single request. Also updates ingredient similarity links.",
+    response_description="Information about the created or updated product.",
+    responses={
+        200: {
+            "description": "Product successfully created or updated.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "product_vector_id": 123,
+                        "name": "Apple",
+                        "normalized_name": "apple",
+                        "source": "agribalyse",
+                        "code_source": "123456",
+                        "message": "Product data processed. Details: New ProductVector for 'apple' created with source 'agribalyse' and code '123456'. Ingredient similarity links update initiated."
+                    }
+                }
+            }
+        },
+        422: {"description": "Validation error (e.g. missing payload)"},
+        500: {"description": "Server error during product creation or update."}
+    }
+)
 async def create_product_endpoint(
     product_data: ProductCreate,
     db_sqla: Session = Depends(get_db),
@@ -76,7 +152,7 @@ async def create_product_endpoint(
         current_user (dict): Authenticated user info.  
     
     Returns:  
-        ProductCreationResponse: Information about the created product.  
+        ProductCreationResponse: Information about the created or updated product.  
     
     Raises:  
         HTTPException: If the product already exists or on server error.  
