@@ -18,7 +18,8 @@ def create_ingredient_link_table(conn):
             source TEXT,
             id_linked INTEGER REFERENCES product_vector(id),
             linked_source TEXT,
-            score FLOAT
+            score FLOAT,
+            UNIQUE (id_source, source, id_linked, linked_source)
         );
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_id_source ON ingredient_link (id_source);")
@@ -49,7 +50,7 @@ def fill_ingredient_links(conn):
             cur.execute("""
                 INSERT INTO ingredient_link (id_source, source, id_linked, linked_source, score)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING;
+                ON CONFLICT (id_source, source, id_linked, linked_source) DO UPDATE SET score = EXCLUDED.score;
             """, (prod_id, source, match['id'], other_source, match['score']))
     conn.commit()
     cur.close()

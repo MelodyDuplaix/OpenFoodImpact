@@ -1,4 +1,7 @@
 
+import logging
+logger = logging.getLogger(__name__)
+
 def find_similar_ingredients(name, source, conn, min_score=0.65):
     """
     Trouve les produits similaires à un ingrédient donné dans d'autres sources.
@@ -46,5 +49,6 @@ def find_similar_ingredients(name, source, conn, min_score=0.65):
             match = cur.fetchone()
             if match and match[2] >= min_score:
                 results[other_source] = {'id': match[0], 'name': match[1], 'score': match[2]}
+        logger.debug(f"Found {len(results)} similar ingredients for {name} in source {source} against {other_source}")
     cur.close()
     return results

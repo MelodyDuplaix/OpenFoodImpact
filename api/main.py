@@ -81,7 +81,7 @@ app = FastAPI(
     version="1.0.0",
     openapi_tags=[
         {"name": "Public", "description": "Public routes"},
-        {"name": "Secure", "description": "Secured routes only accessible to authenticated users"},
+        {"name": "Updates", "description": "Secured routes only accessible to authenticated users, to update data"},
         {"name": "User", "description": "User management routes"}
     ]
 )
@@ -113,7 +113,7 @@ app.include_router(
     secure.router,
     prefix="/api/secure",
     dependencies=[Depends(get_current_user)],
-    tags=["Secure"]
+    tags=["Updates"],
 )
 app.include_router(user_router)
 

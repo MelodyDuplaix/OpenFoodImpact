@@ -8,8 +8,6 @@ from sqlalchemy import func, select, text, or_, and_, case
 from sqlalchemy.dialects.postgresql import ARRAY
 import logging
 logger = logging.getLogger(__name__)
-level = getattr(logging, "DEBUG", None)
-logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(module)s %(message)s')
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'processing'))
 from processing.utils import normalize_name, vectorize_name
