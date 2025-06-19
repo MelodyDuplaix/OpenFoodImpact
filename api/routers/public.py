@@ -68,23 +68,23 @@ async def get_recipes(
     db_pg: Session = Depends(get_db)
 ):
     """
-    Récupère une liste de recettes avec filtres et tris optionnels.
-
-    Args:
-        text_search: Texte pour recherche full-text.
-        ingredients: Liste d'ingrédients à inclure.
-        ingredient_match_type: Mode de correspondance des ingrédients ('all' ou 'any').
-        excluded_ingredients: Liste d'ingrédients à exclure.
-        category: Catégorie de recette.
-        total_time_max: Temps total maximum en minutes.
-        sort_by: Critère de tri ('total_time' ou 'score').
-        limit: Nombre de recettes à retourner.
-        skip: Nombre de recettes à sauter.
-        include_details: Inclure les détails nutritionnels et environnementaux agrégés.
-        min_linked_similarity_score_for_details: Score de similarité minimal pour les produits liés (si include_details=True).
-        min_initial_name_similarity_for_details: Similarité minimale pour la recherche initiale de nom d'ingrédient (si include_details=True).
-    Returns:
-        dict: Dictionnaire avec statut, message, données des recettes et nombre total.
+    Retrieve a list of recipes with optional filters and sorting.  
+    
+    Args:  
+        text_search: Text for full-text search.  
+        ingredients: List of ingredients to include.  
+        ingredient_match_type: Ingredient match mode ('all' or 'any').  
+        excluded_ingredients: List of ingredients to exclude.  
+        category: Recipe category.  
+        total_time_max: Maximum total time in minutes.  
+        sort_by: Sorting criteria ('total_time' or 'score').  
+        limit: Number of recipes to return.  
+        skip: Number of recipes to skip.  
+        include_details: Include aggregated nutritional and environmental details.  
+        min_linked_similarity_score_for_details: Minimum similarity score for linked products (if include_details=True).  
+        min_initial_name_similarity_for_details: Minimum similarity for initial ingredient name search (if include_details=True).  
+    Returns:  
+        dict: Dictionary with status, message, recipe data, and total count.  
     """
     mongo_client = get_mongodb_connection()
     if not mongo_client:
@@ -197,16 +197,16 @@ async def get_recipe_by_id(
     db_pg: Session = Depends(get_db)
 ):
     """
-    Récupère une recette spécifique par son ID MongoDB, avec détails enrichis.
-
-    Args:
-        recipe_id: ID ObjectId de la recette MongoDB.
-        min_linked_similarity_score_for_details: Score de similarité minimal pour les produits liés lors de l'enrichissement.
-        min_initial_name_similarity_for_details: Similarité minimale pour la recherche initiale de nom d'ingrédient lors de l'enrichissement.
-    Returns:
-        dict: Dictionnaire avec statut, message et données de la recette.
-    Raises:
-        HTTPException: Si la connexion échoue, l'ID est invalide, ou la recette n'est pas trouvée.
+    Retrieve a specific recipe by its MongoDB ObjectId, with enriched details.  
+    
+    Args:  
+        recipe_id: MongoDB ObjectId of the recipe.  
+        min_linked_similarity_score_for_details: Minimum similarity score for linked products during enrichment.  
+        min_initial_name_similarity_for_details: Minimum similarity for initial ingredient name search during enrichment.  
+    Returns:  
+        dict: Dictionary with status, message, and recipe data.  
+    Raises:  
+        HTTPException: If connection fails, ID is invalid, or recipe not found.  
     """
     mongo_client = get_mongodb_connection()
 
@@ -250,9 +250,9 @@ async def get_recipe_by_id(
 
 @router.get(
     "/products",
-    summary="Retrieve product information and associated recipes",
-    description="Get product details from various sources linked by similarity, and associated recipes, based on an ingredient name search.",
-    response_description="Product details from all available sources and a list of recipes containing the ingredient.",
+    summary="Retrieve linked product information and associated recipes for an ingredient name",
+    description="Get product and recipe information for a given ingredient name, with similarity thresholds.",
+    response_description="Product and recipe information for the given ingredient name.",
     responses={
         200: {
             "description": "Successfully retrieved product information and associated recipes.",
@@ -302,17 +302,16 @@ async def get_products(
     db_pg: Session = Depends(get_db)
 ):
     """
-    Récupère les informations de produits liés et les recettes associées pour un nom d'ingrédient.
-
-    Args:
-        name_search: Nom de l'ingrédient à rechercher (obligatoire).
-        min_similarity_score: Score de similarité minimal pour les produits liés (table ingredient_link).
-        min_name_similarity: Score de similarité minimal pour la recherche initiale de nom (pg_trgm).
-        limit: Nombre de produits à retourner.
-        skip: Nombre de produits à sauter.
-    Returns:
-        dict: Dictionnaire avec statut, message, données des produits et recettes, et nombre.
-
+    Retrieve linked product information and associated recipes for an ingredient name.  
+    
+    Args:  
+        name_search: Ingredient name to search for (required).  
+        min_similarity_score: Minimum similarity score for linked products (ingredient_link table).  
+        min_name_similarity: Minimum similarity score for initial name search (pg_trgm).  
+        limit: Number of products to return.  
+        skip: Number of products to skip.  
+    Returns:  
+        dict: Dictionary with status, message, product and recipe data, and count.  
     """
     mongo_client = None
     print("appel requete")

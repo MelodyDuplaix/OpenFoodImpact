@@ -39,24 +39,24 @@ router = APIRouter()
 @router.get("/", response_model=Dict[str, str], tags=["User"])
 async def get_testroute(user: dict = Depends(get_current_user)):
     """
-    Route de test sécurisée pour vérifier l'authentification de l'utilisateur.  
-
+    Secured test route to check user authentication.  
+    
     Args:  
-        user (dict): Informations de l'utilisateur authentifié, injectées par Depends(get_user).  
+        user (dict): Authenticated user info, injected by Depends(get_user).  
     Returns:  
-        dict: Informations de l'utilisateur authentifié.  
+        dict: Authenticated user info.  
     """
     return user
 
 @router.post("/recipe", response_model=Recipe, deprecated=True, summary="Placeholder for recipe creation", tags=["Updates"])
 async def create_recipe(recipe_data: Recipe):
     """
-    Crée une nouvelle recette (placeholder).  
-
+    Create a new recipe (placeholder).  
+    
     Args:  
-        recipe_data (Recipe): Données de la recette à créer.  
+        recipe_data (Recipe): Recipe data to create.  
     Returns:  
-        Recipe: La recette créée (actuellement non implémenté).  
+        Recipe: The created recipe (currently not implemented).  
     """
     pass
 
@@ -66,6 +66,21 @@ async def create_product_endpoint(
     db_sqla: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+    """
+    Create or update a product (ProductVector) and its associated data (Agribalyse, OpenFoodFacts, Greenpeace) in a single request.  
+    Also updates ingredient similarity links.  
+    
+    Args:  
+        product_data (ProductCreate): The product data to create.  
+        db_sqla (Session): SQLAlchemy session dependency.  
+        current_user (dict): Authenticated user info.  
+    
+    Returns:  
+        ProductCreationResponse: Information about the created product.  
+    
+    Raises:  
+        HTTPException: If the product already exists or on server error.  
+    """
     action_messages = []
     step_times = {}
     start_time = time.perf_counter()

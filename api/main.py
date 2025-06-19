@@ -31,14 +31,14 @@ class UserAuthRequest(BaseModel):
 @user_router.post("/register", response_model=dict)
 async def register(body: UserAuthRequest, db: Session = Depends(get_db)):
     """
-    Enregistre un nouvel utilisateur.
+    Register a new user.  
 
-    Args:
-        body (UserAuthRequest): Données d'enregistrement (username, password).
-    Returns:
-        dict: Informations sur l'utilisateur et token d'accès en cas de succès.
-    Raises:
-        JSONResponse: En cas d'erreur (champs manquants, utilisateur existant, etc.).
+    Args:  
+        body (UserAuthRequest): Registration data (username, password).  
+    Returns:  
+        dict: User info and access token if successful.  
+    Raises:  
+        JSONResponse: On error (missing fields, user exists, etc.).  
     """
     username = body.username
     password = body.password
@@ -56,14 +56,14 @@ async def register(body: UserAuthRequest, db: Session = Depends(get_db)):
 @user_router.post("/login", response_model=dict)
 async def login(body: UserAuthRequest, db: Session = Depends(get_db)):
     """
-    Connecte un utilisateur existant.
+    Log in an existing user.  
 
-    Args:
-        body (UserAuthRequest): Données de connexion (username, password).
-    Returns:
-        dict: Informations sur l'utilisateur et token d'accès en cas de succès.
-    Raises:
-        JSONResponse: En cas d'échec de l'authentification.
+    Args:  
+        body (UserAuthRequest): Login data (username, password).  
+    Returns:  
+        dict: User info and access token if successful.  
+    Raises:  
+        JSONResponse: On authentication failure.  
     """
     username = body.username
     password = body.password
