@@ -1,32 +1,32 @@
 # DataFoodImpact: Une base de données pour une alimentation responsable
 
-Ce projet vise à créer une base de données centralisant les informations nutritionnelles, environnementales et saisonnières des aliments, ainsi que des recettes.  L'objectif est d'aider les utilisateurs à faire des choix alimentaires plus responsables et personnalisés.
+Ce projet vise à centraliser et croiser des informations nutritionnelles, environnementales, saisonnières et culinaires, afin d’accompagner les utilisateurs vers des choix alimentaires plus responsables, personnalisés et informés.
 
 ## Objectifs
 
-* Collecter et agréger des données nutritionnelles, environnementales et saisonnières.
-* Créer une base de données relationnelle et NoSQL.
-* Développer une API REST pour accéder aux données.
-* Fournir des outils pour calculer l'empreinte carbone des repas et proposer des recettes personnalisées.
+- Collecter et agréger des données issues de sources variées (Open Food Facts, Agribalyse, Greenpeace, Marmiton…)
+- Nettoyer, normaliser et relier ces données pour constituer un jeu de données unique et interrogeable
+- Stocker les données structurées dans PostgreSQL (avec pgvector et pg_trgm) et les recettes dans MongoDB (structure flexible)
+- Développer une API REST sécurisée (FastAPI) pour exposer les données et fonctionnalités (recherche, analyse de similarité, recommandations…)
+- Automatiser l’ensemble du pipeline (extraction, traitement, insertion, déploiement)
 
 ## Structure du projet
 
 ```txt
-Readme/
-├── data/ # fichies de données temporaires
-├── db/ # scripts de création de la base de données
-├── docs/ # documentation du projet
-├── notebooks/ # notebooks de tests divers
-├── processing/ # scripts d'extraction et préparation des données avant insertion en base de données
-├── tests/ # tests unitaires et tests d'intégration de l'api
-├── api/ 
-├── requirements.txt
-└── README.md
+projet_certif_cooking/
+├── api/                # API FastAPI (routes, modèles, services, auth)
+├── processing/         # Scripts d’extraction, nettoyage, agrégation, vectorisation
+├── data/               # Données brutes et intermédiaires
+├── db/                 # Fichiers et scripts liés aux bases de données
+├── docs/               # Documentation technique et rapports
+├── notebooks/          # Analyses et tests exploratoires
+├── tests/              # Tests unitaires et d’intégration
+├── requirements.txt    # Dépendances Python
+├── docker-compose.yml  # Orchestration des bases PostgreSQL/pgvector et MongoDB
+└── readme.md
 ```
 
 ## Démarrage rapide
-
-### Prerequisites
 
 ### Prérequis
 
@@ -42,20 +42,16 @@ Readme/
 git clone https://github.com/MelodyDuplaix/projet_certif_OpenFoodImpact.git
 cd projet_certif_OpenFoodImpact
 ```
-
 2. Créer et activer l'environnement virtuel
 ```bash
 python -m venv venv
-
-venv\Scripts\activate
+venv\Scripts\activate # source venv/bin/activate sous Linux
 ```
-
 3. Installer les dépendances
 ```bash
 pip install -r requirements.txt
 ```
-
-4. Lancer les bases de données avec Docker Compose
+4. Lancer les bases de données
 ```bash
 docker compose up -d
 ```
@@ -71,19 +67,23 @@ python processing/main_pipeline.py
 python api/main.py
 ```
 
-### Workflow du projet
+## Fonctionnalités principales
 
-1. **Collecte des données:**  Extraction de données depuis Open Food Facts, Agribalyse (API), Greenpeace, Marmiton (scraping), et fichiers locaux.
-2. **Nettoyage et préparation des données:**  Homogénéisation des formats, gestion des données manquantes, suppression des données corrompues.
-3. **Création de la base de données:**  Conception et implémentation d'une base de données relationnelle (PostgreSQL ou MySQL) et d'une base NoSQL (MongoDB).
-4. **Développement de l'API:**  Création d'une API REST en FastAPI avec une documentation OpenAPI.
+- **Extraction multi-source** : API, fichiers, web scraping (scripts dédiés)
+- **Nettoyage & agrégation** : homogénéisation, gestion des valeurs manquantes, vectorisation (Hugging Face), matching fuzzy (pg_trgm)
+- **Stockage** :
+  - PostgreSQL + pgvector : produits, ingrédients, liens de similarité, données environnementales/nutritionnelles
+  - MongoDB : recettes Marmiton (structure flexible)
+- **API REST** :
+  - Recherche de produits, ingrédients, recettes (filtres avancés)
+  - Analyse de similarité (vectorielle et textuelle)
+  - Authentification JWT (routes sécurisées pour ajout/modification)
+  - Documentation interactive Swagger/OpenAPI
+- **Automatisation** : pipeline complet orchestré par scripts Python et Docker Compose
 
 ## Améliorations possibles
 
-* Intégration de modèles d'IA pour des recommandations plus personnalisées.
-* Amélioration de l'interface utilisateur pour une meilleure expérience.
-* Extension des sources de données.
-
-## Licence
-
-Ce projet est sous licence MIT - voir le fichier LICENSE pour plus de détails.
+- Recommandations personnalisées (modèles IA)
+- Extension à d’autres sources ou fonctionnalités (menus hebdomadaires, scoring environnemental…)
+- Optimisation des performances (indexation, cache, requêtes asynchrones)
+- Interface utilisateur dédiée
