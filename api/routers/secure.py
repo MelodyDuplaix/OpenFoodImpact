@@ -22,27 +22,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.get("/", include_in_schema=False)
+@router.get("/", response_model=Dict[str, str], tags=["User"])
 async def get_testroute(user: dict = Depends(get_current_user)):
     """
-    Route de test sécurisée pour vérifier l'authentification de l'utilisateur.
+    Route de test sécurisée pour vérifier l'authentification de l'utilisateur.  
 
-    Args:
-        user (dict): Informations de l'utilisateur authentifié, injectées par Depends(get_user).
-    Returns:
-        dict: Informations de l'utilisateur authentifié.
+    Args:  
+        user (dict): Informations de l'utilisateur authentifié, injectées par Depends(get_user).  
+    Returns:  
+        dict: Informations de l'utilisateur authentifié.  
     """
     return user
 
 @router.post("/recipe", response_model=Recipe, deprecated=True, summary="Placeholder for recipe creation", tags=["Updates"])
 async def create_recipe(recipe_data: Recipe):
     """
-    Crée une nouvelle recette (placeholder).
+    Crée une nouvelle recette (placeholder).  
 
-    Args:
-        recipe_data (Recipe): Données de la recette à créer.
-    Returns:
-        Recipe: La recette créée (actuellement non implémenté).
+    Args:  
+        recipe_data (Recipe): Données de la recette à créer.  
+    Returns:  
+        Recipe: La recette créée (actuellement non implémenté).  
     """
     pass
 
@@ -53,20 +53,20 @@ async def create_product_endpoint(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Creates or updates a product's main entry (ProductVector) and its associated data
-    across different sources (Agribalyse, OpenFoodFacts, Greenpeace) in a single request.
-    It also updates ingredient similarity links.
+    Creates or updates a product's main entry (ProductVector) and its associated data  
+    across different sources (Agribalyse, OpenFoodFacts, Greenpeace) in a single request.  
+    It also updates ingredient similarity links.  
     
     Args:
-        product_data (ProductCreate): The product data to create.
-        db_sqla (Session): SQLAlchemy session dependency.
-        current_user (dict): Authenticated user information.
+        product_data (ProductCreate): The product data to create.  
+        db_sqla (Session): SQLAlchemy session dependency.  
+        current_user (dict): Authenticated user information.  
 
-    Returns:
-        ProductCreationResponse: Information about the created product.
+    Returns:  
+        ProductCreationResponse: Information about the created product.  
 
-    Raises:
-        HTTPException: If the product already exists or if there's a server error.
+    Raises:  
+        HTTPException: If the product already exists or if there's a server error.  
     """
     action_messages = []
     step_times = {}

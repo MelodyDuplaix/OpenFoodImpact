@@ -67,6 +67,14 @@ python processing/main_pipeline.py
 python api/main.py
 ```
 
+### Sauvegarde (backup) des bases de données
+- Un script `processing/backup_databases.py` permet de sauvegarder à la demande l’intégralité des bases PostgreSQL et MongoDB (dumps SQL et BSON dans `data/backups/`).
+- Ce script utilise `pg_dump` et `mongodump` (à installer sur la machine ou dans le conteneur) et permet de restaurer ou migrer facilement les données.
+- Lancer simplement :
+```bash
+python processing/backup_databases.py
+```
+
 ## Fonctionnalités principales
 
 - **Extraction multi-source** : API, fichiers, web scraping (scripts dédiés)
@@ -80,6 +88,14 @@ python api/main.py
   - Authentification JWT (routes sécurisées pour ajout/modification)
   - Documentation interactive Swagger/OpenAPI
 - **Automatisation** : pipeline complet orchestré par scripts Python et Docker Compose
+
+## Création d'un utilisateur admin
+
+Pour créer un compte administrateur dans la base de données, exécutez la commande suivante :
+
+```bash
+python api/db.py
+```
 
 ## Améliorations possibles
 

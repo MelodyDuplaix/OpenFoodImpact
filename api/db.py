@@ -6,6 +6,10 @@ from fastapi import HTTPException
 from typing import Optional
 from pymongo import MongoClient
 from sqlalchemy.orm import Session
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.sql_models import User as UserModel
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -112,3 +116,17 @@ def get_mongodb_connection():
     except Exception as e:
         print(f"Error connecting to MongoDB: {e}")
         return None
+
+if __name__ == "__main__":
+    import getpass
+    from api.services.db_session import SessionLocal
+    db = SessionLocal()
+    print("Création d'un utilisateur admin...")
+    username = input("Nom d'utilisateur admin : ")
+    password = getpass.getpass("Mot de passe : ")
+    user = create_user(db, username, password, user_level="admin")
+    if user:
+        print(f"Utilisateur admin '{username}' créé avec succès.")
+    else:
+        print("Erreur lors de la création de l'utilisateur admin.")
+    db.close()
