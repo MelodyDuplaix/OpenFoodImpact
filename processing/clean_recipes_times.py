@@ -19,6 +19,7 @@ def convert_iso8601_to_minutes(duration):
         return duration
     if not isinstance(duration, str):
         return 0
+    # on utilise un regex qui capture les heures et les minutes dans le format ISO 8601
     match = re.match(r'PT(\d+H)?(\d+M)?', duration)
     if not match:
         return 0

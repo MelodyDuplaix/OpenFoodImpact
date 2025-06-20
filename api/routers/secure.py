@@ -30,7 +30,7 @@ from processing.build_ingredient_links import create_ingredient_link_table
 
 import logging
 logger = logging.getLogger(__name__)
-level = getattr(logging, "DEBUG", None)
+level = getattr(logging, "INFO", None)
 logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(module)s %(message)s')
 
 

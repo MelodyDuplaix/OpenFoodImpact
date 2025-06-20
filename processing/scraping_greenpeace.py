@@ -20,10 +20,13 @@ def scrape_greenpeace_calendar():
         soup = BeautifulSoup(response.content, "html.parser")
         calendrier = {}
         for mois_section in soup.select(".month"):
+            # on boucle sur les mois qui sont des sections avec la classe "month"
+            # le nom du mois est un lien <a> dans la section
             month = mois_section.select_one("a")
             if not month:
                 continue
             month = month["name"]
+            # dans le mois il y a une section avec la classe "list-legumes" qui contient les légumes de saison sous forme de liste
             legumes = mois_section.select(".list-legumes")
             legumes_list = [legume.get_text(strip=True) for legume in legumes[0].find_all("li")] if legumes else []
             calendrier[month] = legumes_list
@@ -62,6 +65,7 @@ def insert_season_data_to_db(season_data):
     cur = conn.cursor()
     for month, items in season_data.items():
         for name in items:
+                # on normalise et vectorise le nom pour pouvoir l'ajouter à product_vector
                 name_normalized = normalize_name(name)
                 name_vector = vectorize_name(name_normalized)
                 safe_execute(cur, """
@@ -71,6 +75,8 @@ def insert_season_data_to_db(season_data):
                     RETURNING id;
                 """, (name_normalized, name_vector, 'greenpeace'))
                 result = cur.fetchone()
+                # on récupère l'id du produit pour l'insérer dans greenpeace_season
+                # soit directement si l'insert a réussi, soit en le cherchant dans product_vector si le produit existait déjà
                 if result:
                     product_vector_id = result[0]
                 else:

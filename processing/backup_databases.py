@@ -6,7 +6,9 @@ BACKUP_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'backups')
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
 def backup_postgres():
-    """Backup PostgreSQL database using pg_dump."""
+    """
+    Backup PostgreSQL database using pg_dump to a compressed file in the BACKUP_DIR
+    """
     db_name = os.getenv('POSTGRES_DB', 'openfoodimpact')
     user = os.getenv('POSTGRES_USER', 'postgres')
     password = os.getenv('POSTGRES_PASSWORD', 'postgres')
@@ -20,8 +22,8 @@ def backup_postgres():
         '-h', host,
         '-p', port,
         '-U', user,
-        '-F', 'c',  # custom format
-        '-b',       # include blobs
+        '-F', 'c',  # format compact
+        '-b',       # on inclut les blobs
         '-f', backup_file,
         db_name
     ]
@@ -30,7 +32,9 @@ def backup_postgres():
     print("[PostgreSQL] Sauvegarde terminée.")
 
 def backup_mongodb():
-    """Backup MongoDB database using mongodump."""
+    """
+    Backup MongoDB database using mongodump to a directory in the BACKUP_DIR
+    """
     db_name = os.getenv('MONGO_INITDB_DATABASE', 'OpenFoodImpact')
     host = os.getenv('MONGODB_HOST', 'localhost')
     port = os.getenv('MONGODB_PORT', '27017')

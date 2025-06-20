@@ -30,6 +30,7 @@ def extract_agribalyse_data():
         response.raise_for_status()
         data = response.json()
         all_data.extend(data["results"])
+        # on boucle sur les pages suivantes si elles existent pour tout récupérer
         while data.get("next", None):
             next_url = data["next"]
             response = requests.get(next_url)
@@ -69,15 +70,16 @@ def load_agribalyse_data_to_db(agribalyse_data):
     try:
         for record in agribalyse_data:
             try:
-                record_clean = transform_agribalyse_record(record)
+                record_clean = transform_agribalyse_record(record) # pour renommer les colonnes facilement
                 name = record_clean.get('nom_produit_francais')
                 if not name:
                     continue
+                # on normalise et vectorise le nom pour pouvoir l'ajouter à product_vector
                 name_normalized = normalize_name(name)
                 name_vector = vectorize_name(name_normalized)
                 code_agb = record_clean.get('code_agb')
                 code_ciqual = record_clean.get('code_ciqual')
-                lci_name = record_clean.get('lci_name')
+                # on utilise comme code le code_agb s'il est défini, sinon le code_ciqual
                 try:
                     safe_execute(cur, """
                         INSERT INTO product_vector (name, name_vector, source, code_source)
@@ -85,6 +87,8 @@ def load_agribalyse_data_to_db(agribalyse_data):
                         ON CONFLICT DO NOTHING
                         RETURNING id;
                     """, (name_normalized, name_vector, 'agribalyse', code_agb or code_ciqual))
+                    # on récupère l'id du produit pour l'insérer dans agribalyse
+                    # soit directement si l'insert a réussi, soit en le cherchant dans product_vector si le produit existait déja
                     result = cur.fetchone()
                     if result:
                         product_vector_id = result[0]
@@ -97,8 +101,9 @@ def load_agribalyse_data_to_db(agribalyse_data):
                 except Exception as e:
                     handle_error(e, 'Insert product_vector Agribalyse')
                     continue
+                # on insère dans la table agribalyse, en réunissant l'id de product_vector et les autres colonnes
                 values = [product_vector_id] + [record_clean.get(col) for col in agribalyse_cols[1:]]
-                placeholders = ', '.join(['%s'] * len(agribalyse_cols))
+                placeholders = ', '.join(['%s'] * len(agribalyse_cols)) # pour automatiquement prendre en compte nombre de colonnes
                 insert_sql = f"INSERT INTO agribalyse ({', '.join(agribalyse_cols)}) VALUES ({placeholders}) ON CONFLICT DO NOTHING;"
                 safe_execute(cur, insert_sql, values)
             except Exception as e:
@@ -112,9 +117,9 @@ def load_agribalyse_data_to_db(agribalyse_data):
         cur.close()
         conn.close()
 
-def etl_agribalyse():
+def pipeline_agribalyse():
     """
-    Exécute le pipeline ETL complet pour les données Agribalyse.
+    Exécute le pipeline complet pour les données Agribalyse.
 
     Args:
         None
@@ -125,29 +130,7 @@ def etl_agribalyse():
     if raw_data:
         load_agribalyse_data_to_db(raw_data)
 
-def get_agribalyse_data():
-    """
-    Récupère les données brutes d'Agribalyse (alias pour extract_agribalyse_data).
-
-    Args:
-        None
-    Returns:
-        list: Liste des enregistrements Agribalyse bruts.
-    """
-    return extract_agribalyse_data()
-
-def insert_agribalyse_data_to_db(agribalyse_data):
-    """
-    Charge les données Agribalyse dans la base (alias pour load_agribalyse_data_to_db).
-
-    Args:
-        agribalyse_data (list): Liste des enregistrements Agribalyse à charger.
-    Returns:
-        None: Les données sont insérées dans la base.
-    """
-    load_agribalyse_data_to_db(agribalyse_data)
-
 if __name__ == "__main__":
     print("Fetching Agribalyse data from API...")
-    etl_agribalyse()
-    print("ETL Agribalyse completed.")
+    pipeline_agribalyse()
+    print("pipeline Agribalyse completed.")

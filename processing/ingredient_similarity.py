@@ -19,9 +19,11 @@ def find_similar_ingredients(name, source, conn, min_score=0.65):
     cur.execute("SELECT DISTINCT source FROM product_vector;")
     all_sources = [row[0] for row in cur.fetchall()]
     results = {}
+    # récupère toutes les sources pour iterer dessus
     for other_source in all_sources:
         if other_source == source:
             continue
+        # pour chaque source, sauf celle actuelle, on cherche les ingrédients similaires
         if (source == 'greenpeace' and other_source in ['marmiton', 'agribalyse']) or \
            (other_source == 'greenpeace' and source in ['marmiton', 'agribalyse']):
             # Matching exact

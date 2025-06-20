@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processing.utils import get_db_connection, safe_execute, normalize_name, vectorize_name
 
 openfoodfacts_url = "data/fr.openfoodfacts.org.products.csv"
+# colonnes différentes entre celles présentes dans le CSV et celles utilisées dans la base de données
 openfoodfact_csv_columns = [
     "code", "product_name", "brands", "categories", "labels_tags", "packaging_tags", "countries_tags", "image_url",
     "energy-kcal_100g", "fat_100g", "saturated-fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
@@ -57,6 +58,7 @@ def load_openfoodfacts_chunk_to_db(chunk):
         logging.error("Connexion à la base impossible.")
         return
     cur = conn.cursor()
+    # colonnes numériques à convertir en float
     numeric_cols = [
         "energy_kcal_100g", "fat_100g", "saturated_fat_100g", "carbohydrates_100g", "sugars_100g", "fiber_100g", "proteins_100g", "salt_100g", "sodium_100g",
         "nutriscore_score", "nova_group", "environmental_score_score"
@@ -65,16 +67,20 @@ def load_openfoodfacts_chunk_to_db(chunk):
     for _, row in chunk.iterrows():
         try:
             for col in row.index:
+                # il y avait plusieurs colonnes qui finissent par _grage et dont les valeurs inconnus étaient mis en 'unknown' ou 'not-applicable' au lieu de None
                 if col.endswith('_grade') and str(row[col]).lower() in ['unknown', 'not-applicable']:
                     row[col] = None
+            # on ne garde que les lignes avec moins de 80% de valeurs manquantes, pour avoir suffisamment de données
             if row.isna().mean() > 0.8:
                 continue
+            # on filtre pour ne garder que les produits français, pour que ca corresponde aux autres sources
             if not isinstance(row.get('countries_tags'), str) or 'en:france' not in row['countries_tags']:
                 continue
             name = row.get('product_name')
             code = row.get('code')
             if not isinstance(name, str) or not name.strip() or not code:
                 continue
+            # on normalise et vectorise le nom pour pouvoir l'ajouter à product_vector
             name_normalized = normalize_name(name.strip())
             name_vector = vectorize_name(name_normalized)
             try:
@@ -84,6 +90,8 @@ def load_openfoodfacts_chunk_to_db(chunk):
                     ON CONFLICT DO NOTHING
                     RETURNING id;
                 """, (name_normalized, name_vector, 'openfoodfacts', code))
+                # on récupère l'id du produit pour l'insérer dans openfoodfacts
+                # soit directement si l'insert a réussi, soit en le cherchant dans product_vector si le produit existait déjà
                 result = cur.fetchone()
                 if result:
                     product_vector_id = result[0]
@@ -98,6 +106,7 @@ def load_openfoodfacts_chunk_to_db(chunk):
                 continue
             values = []
             for col in openfoodfact_columns:
+                # on boucle sur les colonnes pour récupérer les valeurs un convertissant les numériques en float et les null en None
                 val = row.get(col, None)
                 if pd.isna(val):
                     val = None
@@ -107,7 +116,7 @@ def load_openfoodfacts_chunk_to_db(chunk):
                     except Exception:
                         val = None
                 values.append(val)
-            insert_rows.append([product_vector_id] + values)
+            insert_rows.append([product_vector_id] + values) # on rajoute l'id de product_vector
         except Exception as e:
             logging.warning(f"Erreur lors du traitement d'une ligne OpenFoodFacts: {e}")
             continue
@@ -127,9 +136,9 @@ def load_openfoodfacts_chunk_to_db(chunk):
     cur.close()
     conn.close()
 
-def etl_openfoodfacts():
+def pipeline_openfoodfacts():
     """
-    Exécute le pipeline ETL complet pour les données OpenFoodFacts.
+    Exécute le pipeline complet pour les données OpenFoodFacts.
 
     Args:
         None
@@ -143,11 +152,12 @@ def etl_openfoodfacts():
         except Exception as e:
             logging.error(f"Erreur lors du traitement d'un chunk OpenFoodFacts: {e}")
         chunk_count += 1
+        # on compte les chunks et on affiche un message tous les 1000 chunks pour suivre la progression
         if chunk_count % 1000 == 0:
             logging.info(f"Progression : {chunk_count} chunks traités")
     logging.info(f"Traitement terminé : {chunk_count} chunks traités ({chunk_count * 1000} lignes environ)")
 
 if __name__ == "__main__":
-    print("Lancement de l'ETL OpenFoodFacts...")
-    etl_openfoodfacts()
-    print("ETL OpenFoodFacts terminé.")
+    print("Lancement du pipeline OpenFoodFacts...")
+    pipeline_openfoodfacts()
+    print("pipeline OpenFoodFacts terminé.")

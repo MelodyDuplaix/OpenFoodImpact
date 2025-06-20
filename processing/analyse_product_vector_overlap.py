@@ -1,4 +1,4 @@
-import psycopg2
+from processing.utils import get_db_connection
 import os
 import pandas as pd
 import concurrent.futures
@@ -62,17 +62,15 @@ def analyse_product_vector_overlap():
     Returns:
         None: Génère un fichier PDF et affiche des informations dans la console.
     """
-    conn = psycopg2.connect(
-        dbname=os.getenv('POSTGRES_DB', 'postgres'),
-        user=os.getenv('POSTGRES_USER', 'postgres'),
-        password=os.getenv('POSTGRES_PASSWORD', 'postgres'),
-        host=os.getenv('POSTGRES_HOST', 'localhost'),
-        port=os.getenv('POSTGRES_PORT', '5432')
-    )
+    conn = get_db_connection()
+    if conn is None:
+        print("Connexion à la base impossible.")
+        return
     cur = conn.cursor()
     print("Création de l'index (si besoin)...")
     cur.execute(SQL_INDEX)
     print("Analyse des produits strictement identiques entre sources :")
+    # on récupère les correspondances exactes entre sources
     df_exact = pd.read_sql(sql=SQL_ANALYSE, conn) # type: ignore
     print(df_exact.to_string(index=False))
     print("\nAnalyse des produits similaires (fuzzy + vector) entre sources:")
@@ -92,20 +90,27 @@ def analyse_product_vector_overlap():
         Returns:
             dict: Résultats de la comparaison (comptes, totaux, pourcentages).
         """
-        local_conn = psycopg2.connect(
-            dbname=os.getenv('POSTGRES_DB', 'postgres'),
-            user=os.getenv('POSTGRES_USER', 'postgres'),
-            password=os.getenv('POSTGRES_PASSWORD', 'postgres'),
-            host=os.getenv('POSTGRES_HOST', 'localhost'),
-            port=os.getenv('POSTGRES_PORT', '5432')
-        )
+        local_conn = get_db_connection()
+        if local_conn is None:
+            return {
+                'source1': s1,
+                'source2': s2,
+                'similar_count_source1': 0,
+                'sampled_total_source1': 0,
+                'percent_source1': 0.0,
+                'similar_count_source2': 0,
+                'sampled_total_source2': 0,
+                'percent_source2': 0.0
+            }
         local_cur = local_conn.cursor()
         local_cur.execute("SELECT name FROM product_vector WHERE source = %s;", (s1,))
         names1 = [row[0] for row in local_cur.fetchall()]
+        # on prend un échantillon si trop de noms
         if len(names1) > sample_size:
             names1 = random.sample(names1, sample_size)
         count_similar_1 = 0
         for name in names1:
+            # on cherche si ce nom a un match fuzzy+vector dans l'autre source
             local_cur.execute(f"""
                 WITH reference AS (
                     SELECT name, name_vector FROM product_vector WHERE name = %s AND source = %s
@@ -123,10 +128,12 @@ def analyse_product_vector_overlap():
         percent1 = 100 * count_similar_1 / total1 if total1 else 0
         local_cur.execute("SELECT name FROM product_vector WHERE source = %s;", (s2,))
         names2 = [row[0] for row in local_cur.fetchall()]
+        # on prend un échantillon si trop de noms
         if len(names2) > sample_size:
             names2 = random.sample(names2, sample_size)
         count_similar_2 = 0
         for name in names2:
+            # on cherche si ce nom a un match fuzzy+vector dans l'autre sens
             local_cur.execute(f"""
                 WITH reference AS (
                     SELECT name, name_vector FROM product_vector WHERE name = %s AND source = %s
@@ -156,6 +163,7 @@ def analyse_product_vector_overlap():
         }
 
     pairs = [(s1, s2) for i, s1 in enumerate(sources) for s2 in sources[i+1:]]
+    # on lance les comparaisons en parallèle pour accélérer le calcul
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(pairs))) as executor:
         for res in executor.map(lambda args: count_similar_names_both_ways(*args), pairs):
             results.append(res)
@@ -172,18 +180,17 @@ def analyse_product_vector_overlap():
             for s2 in sources:
                 if s1 == s2:
                     continue
-                cur = psycopg2.connect(
-                    dbname=os.getenv('POSTGRES_DB', 'postgres'),
-                    user=os.getenv('POSTGRES_USER', 'postgres'),
-                    password=os.getenv('POSTGRES_PASSWORD', 'postgres'),
-                    host=os.getenv('POSTGRES_HOST', 'localhost'),
-                    port=os.getenv('POSTGRES_PORT', '5432')
-                ).cursor()
-                cur.execute("SELECT name FROM product_vector WHERE source = %s;", (s1,)) # type: ignore
-                names1 = [row[0] for row in cur.fetchall()] # type: ignore
+                cur = get_db_connection()
+                if cur is None:
+                    continue
+                cur = cur.cursor()
+                cur.execute("SELECT name FROM product_vector WHERE source = %s;", (s1,))
+                names1 = [row[0] for row in cur.fetchall()]
+                # on prend un échantillon de 50 noms pour chaque source
                 if len(names1) > 50:
                     names1 = random.sample(names1, 50)
                 for name in names1:
+                    # on cherche le meilleur match fuzzy+vector dans l'autre source
                     cur.execute(f"""
                         WITH reference AS (
                             SELECT name, name_vector FROM product_vector WHERE name = %s AND source = %s
@@ -197,7 +204,7 @@ def analyse_product_vector_overlap():
                         WHERE pv.source = %s
                         ORDER BY global_score DESC
                         LIMIT 1;
-                    """, (name, s1, s2)) # type: ignore
+                    """, (name, s1, s2))
                     match = cur.fetchone()
                     if match and match[3] > seuil:
                         sample_pairs.append({
@@ -231,6 +238,7 @@ def analyse_product_vector_overlap():
         plt.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
+        # on fusionne les résultats exacts et fuzzy pour la comparaison graphique
         df_merge = pd.merge(
             df_exact[['source1', 'source2', 'percent_source1', 'percent_source2']],
             df_fuzzy[['source1', 'source2', 'percent_source1', 'percent_source2']],
@@ -250,6 +258,7 @@ def analyse_product_vector_overlap():
         fig2, ax2 = plt.subplots(figsize=(11.69, 8.27))
         bar_width = 0.13
         x = range(len(df_merge))
+        # on trace les barres pour chaque type de matching
         ax2.bar([i-2*bar_width for i in x], df_merge['percent_source1_exact'], width=bar_width, label='Exact (source1)')
         ax2.bar([i-bar_width for i in x], df_merge['percent_source2_exact'], width=bar_width, label='Exact (source2)', alpha=0.5)
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
@@ -269,6 +278,7 @@ def analyse_product_vector_overlap():
                 fig3, ax3 = plt.subplots(figsize=(11.69, min(8.27, 0.5*len(df_seuil)+2)))
                 ax3.axis('off')
                 ax3.set_title(f'Echantillon de paires matchées (global_score > {seuil})')
+                # on affiche un échantillon de paires matchées pour chaque seuil
                 table3 = ax3.table(cellText=df_seuil.sample(n=min(15, len(df_seuil)), random_state=42).values.tolist(), colLabels=list(df_seuil.columns), loc='center')
                 table3.auto_set_font_size(False)
                 table3.set_fontsize(8)
@@ -276,16 +286,14 @@ def analyse_product_vector_overlap():
                 plt.tight_layout()
                 pdf.savefig(fig3)
                 plt.close(fig3)
-        cur2 = psycopg2.connect(
-            dbname=os.getenv('POSTGRES_DB', 'postgres'),
-            user=os.getenv('POSTGRES_USER', 'postgres'),
-            password=os.getenv('POSTGRES_PASSWORD', 'postgres'),
-            host=os.getenv('POSTGRES_HOST', 'localhost'),
-            port=os.getenv('POSTGRES_PORT', '5432')
-        ).cursor()
+        cur2 = get_db_connection()
+        if cur2 is None:
+            return
+        cur2 = cur2.cursor()
         def fetch_count_or_zero():
             res = cur2.fetchone()
             return res[0] if res and res[0] is not None else 0
+        # on compte les produits présents dans toutes les sources (matching exact)
         cur2.execute("""
             SELECT COUNT(*) FROM (
                 SELECT name
@@ -295,6 +303,7 @@ def analyse_product_vector_overlap():
             ) t;
         """)
         nb_exact_all = fetch_count_or_zero()
+        # on compte les produits liés à toutes les sources via ingredient_link (fuzzy+vector)
         cur2.execute("""
             SELECT COUNT(*) FROM (
                 SELECT id_source, source, COUNT(DISTINCT linked_source) AS nb_sources_liees
@@ -306,6 +315,7 @@ def analyse_product_vector_overlap():
             ) t;
         """)
         nb_fuzzy_all = fetch_count_or_zero()
+        # on compte les produits présents dans toutes les sources sauf greenpeace (matching exact)
         cur2.execute("""
             SELECT COUNT(*) FROM (
                 SELECT name
@@ -318,6 +328,7 @@ def analyse_product_vector_overlap():
             ) t;
         """)
         nb_exact_no_gp = fetch_count_or_zero()
+        # on compte les produits liés à toutes les sources sauf greenpeace (fuzzy+vector)
         cur2.execute("""
             SELECT COUNT(*) FROM (
                 SELECT id_source, source, COUNT(DISTINCT linked_source) AS nb_sources_liees

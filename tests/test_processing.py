@@ -76,7 +76,7 @@ def test_etl_openfoodfacts_runs(monkeypatch):
     df = pd.DataFrame({"code": ["1"], "product_name": ["Test"], "countries_tags": ["en:france"]})
     monkeypatch.setattr(openfoodfacts_script, "extract_openfoodfacts_chunks", lambda: iter([df]))
     monkeypatch.setattr(openfoodfacts_script, "load_openfoodfacts_chunk_to_db", lambda chunk: None)
-    openfoodfacts_script.etl_openfoodfacts()  # Should not raise
+    openfoodfacts_script.pipeline_openfoodfacts()  # Should not raise
 
 def test_handle_error_logs_and_raises():
     """
@@ -129,7 +129,7 @@ def test_etl_agribalyse_runs(monkeypatch):
     """
     monkeypatch.setattr(agribalyse_api, "extract_agribalyse_data", lambda: [{"code_agb": "1", "nom_produit_francais": "Test"}])
     monkeypatch.setattr(agribalyse_api, "load_agribalyse_data_to_db", lambda data: None)
-    agribalyse_api.etl_agribalyse()  # Should not raise
+    agribalyse_api.pipeline_agribalyse()  # Should not raise
 
 def test_scrape_greenpeace_calendar(monkeypatch):
     """

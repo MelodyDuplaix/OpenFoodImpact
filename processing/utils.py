@@ -99,10 +99,12 @@ def normalize_name(texte):
     texte = texte.lower()
     if not isinstance(texte, str): texte = ""
 
+    # on enlève les parenthèses et le contenu entre parenthèses
     texte = re.sub(r"\s*\([^)]*\)", "", texte)
     if not isinstance(texte, str): texte = ""
     texte = texte.strip()
 
+    # on enlève les traits d'union et les slashs
     split_result = re.split(r"[-/]|\s+ou\s+", texte)
     if split_result:
         texte = split_result[0]
@@ -112,22 +114,32 @@ def normalize_name(texte):
         texte = ""
     texte = texte.strip()
 
+    # on enlève les unités de mesure
     pattern_unit = r"\b\d+([.,]\d+)?\s*(" + "|".join(UNITES) + r")\b"
     texte = re.sub(pattern_unit, "", texte)
     if not isinstance(texte, str): texte = ""
 
+    # on enlève les nombres
     texte = re.sub(r"\d+([.,]\d+)?", "", texte)
     if not isinstance(texte, str): texte = ""
 
+    # on enlève les accents
     texte = re.sub(r"[^a-zàâäéèêëïîôöùûüç\s-]", "", texte)
     if not isinstance(texte, str): texte = ""
 
-    ADJECTIFS = {"frais", "fraiche", "fraîche", "bio", "entier", "entiere", "petit", "petite", "grand", "grande", "moyen", "moyenne", "sec", "sèche", "moelleux", "moelleuse", "demi", "demie", "nouveau", "nouvelle", "vieux", "vieille", "jeune", "rond", "ronde", "long", "longue", "court", "courte", "gros", "grosse", "fin", "fine", "épais", "épaisse", "blanc", "blanche", "rouge", "jaune", "vert", "verte", "noir", "noire", "rose", "violet", "violette", "orange", "doré", "dorée", "brun", "brune", "cru", "crue", "cuit", "cuite", "surgelé", "surgelée", "nature", "complet", "complète", "allégé", "allégée", "léger", "légère", "extra", "double", "triple", "simple", "sec", "secs", "sèche", "sèches"}
+    ADJECTIFS = {"frais", "fraiche", "fraîche", "bio", "entier", "entiere", 
+                 "petit", "petite", "grand", "grande", "moyen", "moyenne", "sec", "sèche", "moelleux", "moelleuse", "demi", "demie", "nouveau", 
+                 "nouvelle", "vieux", "vieille", "jeune", "rond", "ronde", "long", "longue", "court", "courte", "gros", "grosse", "fin", "fine", 
+                 "épais", "épaisse", "blanc", "blanche", "rouge", "jaune", "vert", "verte", "noir", "noire", "rose", "violet", "violette", "orange", 
+                 "doré", "dorée", "brun", "brune", "cru", "crue", "cuit", "cuite", "surgelé", "surgelée", "nature", "complet", "complète", "allégé", 
+                 "allégée", "léger", "légère", "extra", "double", "triple", "simple", "sec", "secs", "sèche", "sèches"}
     QUANTITES = {"quelques", "beaucoup", "peu", "plusieurs", "moitié", "quart", "tiers", "demi", "entier", "entière"}
     mots = texte.split()
+    # on enlève les stopwords, les adjectifs et les quantités
     mots_nettoyes = [mot for mot in mots if mot not in STOPWORDS and mot not in ADJECTIFS and mot not in QUANTITES]
 
     mots_nettoyes = [mot for mot in mots_nettoyes if isinstance(mot, str)]
+    # on ne garde que les caractères ascii et on enlève les accents
     mots_nettoyes = [unicodedata.normalize('NFD', mot).encode('ascii', 'ignore').decode('utf-8') for mot in mots_nettoyes]
     final_string = " ".join(mots_nettoyes)
     return final_string.strip()
@@ -163,8 +175,10 @@ def parse_ingredient_details_fr_en(ingredient_string: str) -> Dict[str, Any]:
     regex_qty_unit = rf"^((\d+[\.,]\d*|\d+/\d+|\d+)\s*({explicit_units_pattern})?\b)\s*(.*)"
     regex_text_unit = r"^(une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\s+([a-zA-Zàâäéèêëïîôöùûüç\s\.\-\']+?)\s+(de|d')\s+(.*)"
 
+    # on vérifie si le texte correspond à un format de quantité explicite
     match_text_unit = re.match(regex_text_unit, text)
     if match_text_unit:
+        # si c'est le cas, on extrait la quantité et l'unité
         quantity_str = match_text_unit.group(1).strip()
         unit_candidate = match_text_unit.group(2).strip()
         if re.fullmatch(explicit_units_pattern, unit_candidate, re.IGNORECASE):
@@ -174,8 +188,10 @@ def parse_ingredient_details_fr_en(ingredient_string: str) -> Dict[str, Any]:
             unit_str = None
             ingredient_name_part = text
     else:
+        # sinon, on utilise le regex pour quantité et unité, on vérifie si on a une unité explicite
         match_qty_unit = re.match(regex_qty_unit, text)
         if match_qty_unit:
+            # si c'est le cas, on extrait la quantité et l'unité
             quantity_match_in_group2 = re.match(r"(\d+[\.,]\d*|\d+/\d+|\d+)", match_qty_unit.group(2).strip())
             if quantity_match_in_group2:
                 quantity_str = quantity_match_in_group2.group(1)
@@ -190,18 +206,21 @@ def parse_ingredient_details_fr_en(ingredient_string: str) -> Dict[str, Any]:
             else:
                 ingredient_name_part = ""
         else:
+            # si aucune quantité explicite n'est trouvée, on laisse l'unité et la quantité à None
             ingredient_name_part = text.strip()
 
+    # on enlève les morts de liaisons
     if ingredient_name_part.startswith("de "):
         ingredient_name_part = ingredient_name_part[3:]
     elif ingredient_name_part.startswith("d'"):
         ingredient_name_part = ingredient_name_part[2:]
     
+    # on enlève les parenthèses et le contenu entre parenthèses
     ingredient_name_part = re.sub(r"\s*\([^)]*\)", "", ingredient_name_part).strip()
     words = ingredient_name_part.split()
-    preparation_terms = ["coupé", "coupée", "coupés", "coupées", "émincé", "émincée", "haché", "hachée", "fondu", "fondue", "frais", "fraîche", "frais", "fraîches", "en dés", "en rondelles", "finement"]
     cleaned_name = " ".join(words).strip()
 
+    # si il y a des quantités et unités qu'on connait, on les convertit en grammes
     if quantity_str and unit_str and unit_str in UNIT_TO_GRAMS_APPROX:
         try:
             if "/" in quantity_str:
@@ -213,9 +232,10 @@ def parse_ingredient_details_fr_en(ingredient_string: str) -> Dict[str, Any]:
         except ValueError:
             pass
     elif quantity_str and not unit_str:
+        # si on a une quantité mais pas d'unité, on considère que c'est en grammes
         try:
             q_val = float(quantity_str.replace(",", "."))
-            pass
+            quantity_grams = q_val
         except ValueError:
             pass
 

@@ -28,6 +28,7 @@ def scrapes_recipe_list():
         page = 1
         category_recipes_count = 0
         while True:
+            # tant qu'il y a des pages à scraper en incrémentant le numéro de page, on récupère les recettes
             url = f"{base_url}{recipe_type}/" if page == 1 else f"{base_url}{recipe_type}/{page}"
             try:
                 response = requests.get(url, timeout=10)
@@ -40,6 +41,7 @@ def scrapes_recipe_list():
             if not recipe_cards:
                 break
             for recipe in recipe_cards:
+                # on limite à un nombre maximum de recettes par catégorie pour limiter le temps de traitement
                 if category_recipes_count >= max_number_per_category:
                     break
                 title_element = recipe.select_one(".mrtn-card__title")
@@ -72,6 +74,7 @@ def extract_schemaorg_recipe(url):
         response.raise_for_status()
         soup = BeautifulSoup(response.content, "html.parser")
         for script in soup.find_all("script", type="application/ld+json"):
+            # on cherche dans les scripts du header de la page celui qui concerne le schema.org de type Recipe
             try:
                 script_content = script.get_text()
                 if not script_content:

@@ -1,5 +1,5 @@
-import psycopg2
 from processing.ingredient_similarity import find_similar_ingredients
+from processing.utils import get_db_connection
 
 def create_ingredient_link_table(conn):
     """
@@ -22,6 +22,7 @@ def create_ingredient_link_table(conn):
             UNIQUE (id_source, source, id_linked, linked_source)
         );
     """)
+    # les index serviront à accélérer les requêtes de recherche de liens entre ingrédients, surtout si l'on cherche pour beaucoup de recettes dans une même requête
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_id_source ON ingredient_link (id_source);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_id_linked ON ingredient_link (id_linked);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredient_link_source_text ON ingredient_link (source);")
@@ -45,7 +46,9 @@ def fill_ingredient_links(conn):
     cur.execute("SELECT id, name, source FROM product_vector;")
     all_products = cur.fetchall()
     for prod_id, name, source in all_products:
+        # on boucle sur tous les produits dans product_vector pour chercher les ingrédients similaires à ce produit des autres sources
         similars = find_similar_ingredients(name, source, conn)
+        # pour chaque ingrédient similaire trouvé, on insère un lien dans la table ingredient_link
         for other_source, match in similars.items():
             cur.execute("""
                 INSERT INTO ingredient_link (id_source, source, id_linked, linked_source, score)
@@ -56,13 +59,10 @@ def fill_ingredient_links(conn):
     cur.close()
 
 if __name__ == '__main__':
-    conn = psycopg2.connect(
-        dbname='postgres',
-        user='postgres',
-        password='postgres',
-        host='localhost',
-        port='5432'
-    )
-    create_ingredient_link_table(conn)
-    fill_ingredient_links(conn)
-    conn.close()
+    conn = get_db_connection()
+    if conn is None:
+        print("Connexion à la base impossible.")
+    else:
+        create_ingredient_link_table(conn)
+        fill_ingredient_links(conn)
+        conn.close()
