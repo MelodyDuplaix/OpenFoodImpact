@@ -361,7 +361,6 @@ async def get_products(
                 "id": product_detail.get("id"),
                 "name": product_detail.get("name"),
                 "source": product_detail.get("source"),
-                "code_source": product_detail.get("code_source"),
                 "score_to_search": product_detail.get("score_to_search")
             })
 

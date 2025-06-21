@@ -18,16 +18,14 @@ def init_db():
     CREATE TABLE IF NOT EXISTS product_vector (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
-        name_vector VECTOR(384),
-        source VARCHAR(32) NOT NULL,
-        code_source TEXT,
-        UNIQUE (name, source)
+        name_vector vector(384),
+        source VARCHAR(32) NOT NULL
+        -- code_source supprimé
     );''')
     # on créer des index pour optimiser les recherches
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_name ON product_vector (name);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_gin_product_vector_name ON product_vector USING gin (name gin_trgm_ops);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_source ON product_vector (source);")
-    safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_product_vector_code_source ON product_vector (code_source);")
     safe_execute(cur, "CREATE INDEX IF NOT EXISTS idx_hnsw_product_vector_name_vector ON product_vector USING hnsw (name_vector vector_cosine_ops);")
     safe_execute(cur, '''
     CREATE TABLE IF NOT EXISTS agribalyse (

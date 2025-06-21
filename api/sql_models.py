@@ -17,7 +17,6 @@ class ProductVector(Base):
     name = Column(Text, nullable=False)
     name_vector = Column(Vector(384))
     source = Column(String(32), nullable=False)
-    code_source = Column(Text)
 
     __table_args__ = (UniqueConstraint('name', 'source', name='uq_product_vector_name_source'),)
 

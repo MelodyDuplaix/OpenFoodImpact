@@ -15,10 +15,9 @@ def normalize_and_validate_name(product_name: str) -> str:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Normalized product name cannot be empty after processing.")
     return normalized_name
 
-def select_or_create_product_vector(db_sqla: Session, normalized_name: str, product_data) -> Tuple[ProductVector, str, Optional[str], List[str]]:
+def select_or_create_product_vector(db_sqla: Session, normalized_name: str, product_data) -> Tuple[ProductVector, str, List[str]]:
     action_messages = []
     effective_source = None
-    effective_code_source = None
     pv_to_process = None
     existing_pvs = db_sqla.query(ProductVector).filter(ProductVector.name == normalized_name).all()
     if existing_pvs:
@@ -49,26 +48,13 @@ def select_or_create_product_vector(db_sqla: Session, normalized_name: str, prod
                 pv_to_process = existing_pvs[0]
                 action_messages.append(f"Multiple ProductVectors found for '{normalized_name}'. Defaulting to the first one (ID: {pv_to_process.id}, Source: {pv_to_process.source}).")
         effective_source = getattr(pv_to_process, 'source', '') or ''
-        effective_code_source = getattr(pv_to_process, 'code_source', None)
-        pv_instance_source = getattr(pv_to_process, 'source', '') or ''
-        pv_instance_code_source = getattr(pv_to_process, 'code_source', None)
-        if pv_instance_source == "agribalyse" and product_data.agribalyse_payload and getattr(product_data.agribalyse_payload, 'code_agb', None) is not None and pv_instance_code_source != getattr(product_data.agribalyse_payload, 'code_agb', None):
-            setattr(pv_to_process, 'code_source', product_data.agribalyse_payload.code_agb)
-            action_messages.append(f"ProductVector's primary code_source updated to '{product_data.agribalyse_payload.code_agb}' based on Agribalyse payload.")
-        elif pv_instance_source == "openfoodfacts" and product_data.openfoodfacts_payload and getattr(product_data.openfoodfacts_payload, 'code_off', None) is not None and pv_instance_code_source != getattr(product_data.openfoodfacts_payload, 'code_off', None):
-            setattr(pv_to_process, 'code_source', product_data.openfoodfacts_payload.code_off)
-            action_messages.append(f"ProductVector's primary code_source updated to '{product_data.openfoodfacts_payload.code_off}' based on OpenFoodFacts payload.")
-        effective_code_source = getattr(pv_to_process, 'code_source', None)
     else:
         if product_data.agribalyse_payload:
             effective_source = "agribalyse"
-            effective_code_source = product_data.agribalyse_payload.code_agb
         elif product_data.openfoodfacts_payload:
             effective_source = "openfoodfacts"
-            effective_code_source = product_data.openfoodfacts_payload.code_off
         elif product_data.greenpeace_payload:
             effective_source = "greenpeace"
-            effective_code_source = None
         else:
             logger.error("[STEP] No data payload provided for new product.")
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Cannot create a new product without at least one data payload (Agribalyse, OpenFoodFacts, or Greenpeace).")
@@ -76,13 +62,12 @@ def select_or_create_product_vector(db_sqla: Session, normalized_name: str, prod
         new_pv_entry = ProductVector(
             name=normalized_name,
             name_vector=name_vector,
-            source=effective_source,
-            code_source=effective_code_source
+            source=effective_source
         )
         db_sqla.add(new_pv_entry)
         pv_to_process = new_pv_entry
-        action_messages.append(f"New ProductVector for '{normalized_name}' created with source '{effective_source}' and code '{effective_code_source}'.")
-    return pv_to_process, effective_source, effective_code_source, action_messages
+        action_messages.append(f"New ProductVector for '{normalized_name}' created with source '{effective_source}'.")
+    return pv_to_process, effective_source, action_messages
 
 def process_agribalyse_payload(db_sqla: Session, pv_to_process: ProductVector, product_data, action_messages: List[str]):
     if product_data.agribalyse_payload:

@@ -3,12 +3,11 @@ from typing import List, Optional, Literal
 
 class AgribalyseProductData(BaseModel):
     """
-    Payload for Agribalyse-specific product data.
-    'nom_produit_francais' comes from the top-level 'name'.
-    'code_agb' comes from the top-level 'code_source'.
+    Données spécifiques Agribalyse pour un produit.
+    'nom_produit_francais' provient du champ principal 'name'.
     """
-    nom_produit_francais_agb: Optional[str] = Field(None, description="Specific French name for Agribalyse. If None, uses the main product name.")
-    code_agb: Optional[str] = Field(None, description="Specific Agribalyse code (Code AGB). If None, uses the main product code_source if source is 'agribalyse'.")
+    nom_produit_francais_agb: Optional[str] = Field(None, description="Nom français spécifique pour Agribalyse. Si None, utilise le nom principal du produit.")
+    code_agb: Optional[str] = Field(None, description="Code Agribalyse spécifique (Code AGB). Si None, utilise le code principal si la source est 'agribalyse'.")
     code_ciqual: Optional[str] = None
     lci_name: Optional[str] = None
     changement_climatique: Optional[float] = None
@@ -40,12 +39,11 @@ class AgribalyseProductData(BaseModel):
 
 class OpenFoodFactsProductData(BaseModel):
     """
-    Payload for OpenFoodFacts-specific product data.
-    'product_name' comes from the top-level 'name'.
-    'code' (barcode) comes from the top-level 'code_source'.
+    Données spécifiques OpenFoodFacts pour un produit.
+    'product_name' provient du champ principal 'name'.
     """
-    product_name_off: Optional[str] = Field(None, description="Specific product name for OpenFoodFacts. If None, uses the main product name.")
-    code_off: Optional[str] = Field(None, description="Specific OpenFoodFacts code (barcode). If None, uses the main product code_source if source is 'openfoodfacts'.")
+    product_name_off: Optional[str] = Field(None, description="Nom spécifique pour OpenFoodFacts. Si None, utilise le nom principal du produit.")
+    code_off: Optional[str] = Field(None, description="Code OpenFoodFacts spécifique (code-barres). Si None, utilise le code principal si la source est 'openfoodfacts'.")
     brands: Optional[str] = None
     categories: Optional[str] = None
     labels_tags: Optional[str] = None
@@ -71,24 +69,20 @@ class OpenFoodFactsProductData(BaseModel):
 
 class GreenpeaceProductData(BaseModel):
     """
-    Payload for Greenpeace-specific product data.
-    'name' comes from the top-level 'name'.
+    Données spécifiques Greenpeace pour un produit.
+    'name' provient du champ principal 'name'.
     """
-    months: List[str] = Field(..., example=["janvier", "février"], description="List of months the product is in season") # type: ignore
+    months: List[str] = Field(..., example=["janvier", "février"], description="Liste des mois où le produit est de saison") # type: ignore
 
 class ProductCreate(BaseModel):
-    name: str = Field(..., example="Pomme de terre", description="The common name of the product.") # type: ignore
-    # source and code_source will be determined by the endpoint based on existing data or provided payloads.
-
+    name: str = Field(..., example="Pomme de terre", description="Nom commun du produit.") # type: ignore
     agribalyse_payload: Optional[AgribalyseProductData] = None
     openfoodfacts_payload: Optional[OpenFoodFactsProductData] = None
     greenpeace_payload: Optional[GreenpeaceProductData] = None
-
 
 class ProductCreationResponse(BaseModel):
     product_vector_id: int
     name: str
     normalized_name: str
     source: str
-    code_source: Optional[str]
     message: str

@@ -85,11 +85,11 @@ def load_openfoodfacts_chunk_to_db(chunk):
             name_vector = vectorize_name(name_normalized)
             try:
                 safe_execute(cur, """
-                    INSERT INTO product_vector (name, name_vector, source, code_source)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO product_vector (name, name_vector, source)
+                    VALUES (%s, %s, %s)
                     ON CONFLICT DO NOTHING
                     RETURNING id;
-                """, (name_normalized, name_vector, 'openfoodfacts', code))
+                """, (name_normalized, name_vector, 'openfoodfacts'))
                 # on récupère l'id du produit pour l'insérer dans openfoodfacts
                 # soit directement si l'insert a réussi, soit en le cherchant dans product_vector si le produit existait déjà
                 result = cur.fetchone()

@@ -33,7 +33,7 @@ def is_db_filled():
         cur.execute('SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s);', ('product_vector',))
         exists_product_vector = cur.fetchone()[0] # type: ignore
         cur.execute('SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s);', ('users',))
-        exists_users = cur.fetchone()[0] # type: ignore
+        exists_users = cur.fetchone()[0] # type: ignore 
         if not exists_product_vector or not exists_users:
             cur.close()
             conn.close()

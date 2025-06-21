@@ -88,7 +88,7 @@ async def create_recipe(
         parsed_ingredients_details.append(parsed)
         existing_pv = db_sqla.query(ProductVector).filter(ProductVector.name == norm_name).first()
         if not existing_pv:
-            new_pv = ProductVector(name=norm_name, name_vector=None, source="manual", code_source=None)
+            new_pv = ProductVector(name=norm_name, name_vector=None, source="manual")
             db_sqla.add(new_pv)
             db_sqla.commit()
             db_sqla.refresh(new_pv)
@@ -127,8 +127,7 @@ async def create_recipe(
                         "name": "Apple",
                         "normalized_name": "apple",
                         "source": "agribalyse",
-                        "code_source": "123456",
-                        "message": "Product data processed. Details: New ProductVector for 'apple' created with source 'agribalyse' and code '123456'. Ingredient similarity links update initiated."
+                        "message": "Product data processed. Details: New ProductVector for 'apple' created with source 'agribalyse'. Ingredient similarity links update initiated."
                     }
                 }
             }
@@ -169,7 +168,7 @@ async def create_product_endpoint(
 
     logger.debug("[DEBUG] Step 2: Sélection ou création du ProductVector")
     step_start = time.perf_counter()
-    pv_to_process, effective_source, effective_code_source, action_messages_pv = select_or_create_product_vector(db_sqla, normalized_name, product_data)
+    pv_to_process, effective_source, action_messages_pv = select_or_create_product_vector(db_sqla, normalized_name, product_data)
     action_messages.extend(action_messages_pv)
     step_times['select_or_create_pv'] = time.perf_counter() - step_start
     logger.debug(f"[STEP] select_or_create_pv done in {step_times['select_or_create_pv']:.4f}s")
@@ -233,6 +232,5 @@ async def create_product_endpoint(
         name=product_data.name,
         normalized_name=normalized_name,
         source=effective_source,
-        code_source=effective_code_source,
         message="Product data processed. Details: " + " | ".join(action_messages) + ". Ingredient similarity links update initiated."
     )

@@ -195,7 +195,7 @@ def analyse_product_vector_overlap():
                         WITH reference AS (
                             SELECT name, name_vector FROM product_vector WHERE name = %s AND source = %s
                         )
-                        SELECT pv.name, pv.source, pv.code_source,
+                        SELECT pv.name, pv.source,
                                (0.4 * (1 - (pv.name_vector <=> r.name_vector)) + 0.6 * similarity(pv.name, r.name)) AS global_score,
                                1 - (pv.name_vector <=> r.name_vector) AS vector_similarity,
                                similarity(pv.name, r.name) AS fuzzy_similarity
@@ -212,7 +212,6 @@ def analyse_product_vector_overlap():
                             'name1': name,
                             'source2': match[1],
                             'name2': match[0],
-                            'code_source2': match[2],
                             'global_score': round(match[3], 3),
                             'vector_similarity': round(match[4], 3),
                             'fuzzy_similarity': round(match[5], 3),

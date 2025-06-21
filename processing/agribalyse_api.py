@@ -82,11 +82,11 @@ def load_agribalyse_data_to_db(agribalyse_data):
                 # on utilise comme code le code_agb s'il est défini, sinon le code_ciqual
                 try:
                     safe_execute(cur, """
-                        INSERT INTO product_vector (name, name_vector, source, code_source)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO product_vector (name, name_vector, source)
+                        VALUES (%s, %s, %s)
                         ON CONFLICT DO NOTHING
                         RETURNING id;
-                    """, (name_normalized, name_vector, 'agribalyse', code_agb or code_ciqual))
+                    """, (name_normalized, name_vector, 'agribalyse'))
                     # on récupère l'id du produit pour l'insérer dans agribalyse
                     # soit directement si l'insert a réussi, soit en le cherchant dans product_vector si le produit existait déja
                     result = cur.fetchone()

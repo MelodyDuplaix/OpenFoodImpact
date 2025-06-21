@@ -164,7 +164,7 @@ def _fetch_product_details(
                 "id": pv_item.id,
                 "name": pv_item.name,
                 "source": pv_item.source,
-                "code_source": pv_item.code_source,
+                # "code_source": pv_item.code_source,  # supprimé
             }
 
             if pv_item.source == 'agribalyse' and pv_item.agribalyse_entries: # type: ignore
@@ -322,7 +322,7 @@ def _aggregate_product_details(
     """
     global_details_aggregator: Dict[str, Any] = {}
     excluded_keys_for_global_details = [
-        'id', 'name', 'source', 'code_source', 'score_to_search', 'name_vector',
+        'id', 'name', 'source', 'score_to_search', 'name_vector',
         'product_name', 'code',
         'nom_produit_francais', 'code_agb', 'code_ciqual', 'lci_name'
     ]

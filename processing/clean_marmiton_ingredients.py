@@ -63,7 +63,6 @@ def extract_ingredients_mongo():
         df["name_vector"] = df["name"].apply(vectorize_name)
     else:
         df["name_vector"] = pd.Series(dtype='object')
-    df["code_source"] = None
     return df
 
 def insert_ingredients_to_pgvector(df):
@@ -84,10 +83,11 @@ def insert_ingredients_to_pgvector(df):
         for _, row in df.iterrows():
             try:
                 safe_execute(cur, """
-                    INSERT INTO product_vector (name, name_vector, source, code_source)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (name, source) DO NOTHING; 
-                """, (row["name"], row["name_vector"], row["source"], row["code_source"]))
+                    INSERT INTO product_vector (name, name_vector, source)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    RETURNING id;
+                """, (row["name"], row["name_vector"], row["source"]))
             except Exception as e:
                 print(f"Erreur insertion ingredient: {e}")
                 continue
