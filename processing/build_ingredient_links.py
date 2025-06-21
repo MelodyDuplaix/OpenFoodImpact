@@ -13,13 +13,12 @@ def create_ingredient_link_table(conn):
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ingredient_link (
-            id SERIAL PRIMARY KEY,
             id_source INTEGER REFERENCES product_vector(id),
             source TEXT,
             id_linked INTEGER REFERENCES product_vector(id),
             linked_source TEXT,
             score FLOAT,
-            UNIQUE (id_source, source, id_linked, linked_source)
+            PRIMARY KEY (id_source, source, id_linked, linked_source)
         );
     """)
     # les index serviront à accélérer les requêtes de recherche de liens entre ingrédients, surtout si l'on cherche pour beaucoup de recettes dans une même requête

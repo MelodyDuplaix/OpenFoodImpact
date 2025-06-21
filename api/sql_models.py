@@ -116,11 +116,10 @@ class GreenpeaceSeason(Base):
 
 class IngredientLink(Base):
     __tablename__ = "ingredient_link"
-    id = Column(Integer, primary_key=True, index=True)
-    id_source = Column(Integer, ForeignKey("product_vector.id", ondelete="CASCADE"), index=True)
-    source = Column(Text, index=True)
-    id_linked = Column(Integer, ForeignKey("product_vector.id", ondelete="CASCADE"), index=True)
-    linked_source = Column(Text, index=True)
+    id_source = Column(Integer, ForeignKey("product_vector.id", ondelete="CASCADE"), primary_key=True, index=True)
+    source = Column(Text, primary_key=True, index=True)
+    id_linked = Column(Integer, ForeignKey("product_vector.id", ondelete="CASCADE"), primary_key=True, index=True)
+    linked_source = Column(Text, primary_key=True, index=True)
     score = Column(Float, index=True)
 
     source_product = relationship("ProductVector", foreign_keys=[id_source], back_populates="source_links")
