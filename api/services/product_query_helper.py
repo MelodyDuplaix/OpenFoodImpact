@@ -67,6 +67,7 @@ def _get_linked_product_vector_ids(
     best_links_per_initial_id: Dict[int, Dict[str, Any]] = {}
 
     try:
+        # on récupère les données des produits initiaux
         initial_products_data_query = (
             select(ProductVector.id, ProductVector.name, ProductVector.source, ProductVector.name_vector)
             .where(ProductVector.id.in_(initial_ids))
@@ -78,6 +79,7 @@ def _get_linked_product_vector_ids(
         all_db_sources = [row[0] for row in db.execute(all_db_sources_query).all()]
 
         for initial_pv_id, initial_product_info in initial_products_data.items():
+            # on itère sur chaque produit initial, et on cherche les meilleurs liens pour chaque source
             current_initial_source = initial_product_info.source
             best_links_for_current_initial: Dict[str, Any] = {}
 
@@ -108,6 +110,7 @@ def _get_linked_product_vector_ids(
                     .order_by(IngredientLink.score.desc())
                     .limit(1)
                 )
+                # ces requêtes permettent de récupérer les produits les plus liés au produit initial via les liens d'ingrédients
                 res1 = db.execute(stmt1).first()
                 res2 = db.execute(stmt2).first()
 
@@ -164,7 +167,6 @@ def _fetch_product_details(
                 "id": pv_item.id,
                 "name": pv_item.name,
                 "source": pv_item.source,
-                # "code_source": pv_item.code_source,  # supprimé
             }
 
             if pv_item.source == 'agribalyse' and pv_item.agribalyse_entries: # type: ignore
@@ -221,6 +223,7 @@ def _calculate_similarity_to_search_term(
             )
             .where(ProductVector.id == product_vector_id)
         )
+        # on calcule le score de similarité combiné entre le vecteur du nom du produit et le nom de recherche via une combinaison pondérée vectorisation + similarité textuelle
         result = db.execute(stmt).scalar_one_or_none()
         if result is not None:
             score = float(result)
@@ -285,19 +288,23 @@ def _get_processed_products(
     
     logger.debug(f"_get_processed_products: Fetching details for {len(all_unique_pv_ids_to_fetch)} IDs.")
 
+    # on récupère les détails des produits liés
     products_with_details = _fetch_product_details(db, all_unique_pv_ids_to_fetch)
 
+    # on calcule le score de similarité pour chaque produit
     for product in products_with_details:
         product['score_to_search'] = _calculate_similarity_to_search_term(
             db, product['id'], normalized_search_name, search_vector
         )
     
     best_product_per_source: Dict[str, Any] = {}
+    # on trie les produits par source et par score de similarité
     products_with_details.sort(key=lambda x: (x.get('source'), x.get('score_to_search', 0.0)), reverse=True)
     
     logger.debug("_get_processed_products, etape 4")
 
     for product in products_with_details:
+        # on garde le meilleur produit par source
         source = product['source']
         current_score = product.get('score_to_search', 0.0)
         if source not in best_product_per_source or current_score > best_product_per_source[source].get('score_to_search', 0.0):
@@ -343,8 +350,7 @@ def _get_details_for_single_ingredient(
     min_initial_name_similarity: float
 ) -> Dict[str, Any]:
     """
-    Récupère et agrège les détails pour un seul ingrédient,
-    en utilisant les liens précalculés dans ingredient_link.
+    Récupère et agrège les détails pour un seul ingrédient, en utilisant les liens précalculés dans ingredient_link.
 
     Args:
         db: Session SQLAlchemy.

@@ -86,7 +86,8 @@ async def login(body: UserAuthRequest, db: Session = Depends(get_db)):
 
 app = FastAPI(
     title="DataFoodImpact API",
-    description="API for managing recipes and products, with their nutritional and environmental information.",
+    description="""API for managing recipes and products, with their nutritional and environmental information. 
+    You can create, update, and retrieve recipes and products, as well as manage user accounts.""",
     version="1.0.0",
     openapi_tags=[
         {"name": "Public", "description": "Public routes"},

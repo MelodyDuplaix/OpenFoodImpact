@@ -50,6 +50,7 @@ def build_recipe_query_conditions(
     if ingredients:
         normalized_ingredients_list = [normalize_name(ing) for ing in ingredients]
         individual_ingredient_conditions = []
+        # on crée des conditions pour chaque ingrédient en utilisant une expression régulière
         for ing_raw, ing_norm in zip(ingredients, normalized_ingredients_list):
             individual_ingredient_conditions.append({"$or": [
                 {"recipeIngredient": {"$regex": f".*{re.escape(ing_raw)}.*", "$options": "i"}},
@@ -62,6 +63,7 @@ def build_recipe_query_conditions(
             all_conditions.append({"$or": individual_ingredient_conditions})
 
     if excluded_ingredients:
+        # si on doit exclure des ingrédients, on crée une condition $nor
         normalized_excluded_ingredients = [normalize_name(ex_ing) for ex_ing in excluded_ingredients]
         for ex_ing_raw, ex_ing_norm in zip(excluded_ingredients, normalized_excluded_ingredients):
             all_conditions.append({
