@@ -14,6 +14,8 @@ from api.db import get_mongodb_connection
 from api.services.db_session import get_db
 from api.services.query_helper import build_recipe_query_conditions, get_recipe_sort_criteria, IngredientMatchType, SortCriteria
 from api.services.product_query_helper import _get_linked_product_vector_ids, _get_product_vector_ids_by_name, _fetch_recipes_for_ingredient, _get_processed_products, _aggregate_product_details, get_enriched_recipes_details
+import logging
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -93,6 +95,7 @@ async def get_recipes(
         db_mongo = mongo_client["OpenFoodImpact"]
         collection = db_mongo["recipes"]
 
+        # on construit la requête MongoDB en fonction des paramètres
         query_conditions = build_recipe_query_conditions(
             text_search, ingredients, ingredient_match_type,
             excluded_ingredients, category, total_time_max
@@ -104,18 +107,18 @@ async def get_recipes(
 
         sort_criteria_list = get_recipe_sort_criteria(sort_by, text_search)
         projection = None
+        # si on fait une recherche textuelle, on ajoute le score de pertinence
         if text_search:
             projection = {"score": {"$meta": "textScore"}}
 
+        # on récupère le nombre de recettes totales, et les recettes, et on trie si nécessaire
         total_recipes_count = collection.count_documents(mongo_query)
-
         cursor = collection.find(mongo_query, projection)
-
         if sort_criteria_list:
             cursor = cursor.sort(sort_criteria_list)
-
         recipes_data = list(cursor.skip(skip).limit(limit))
 
+        # si le paramètre include details est True, on récupère les détails agrégés des ingrédients
         if include_details and recipes_data:
             try:
                 recipes_data = get_enriched_recipes_details(
@@ -127,6 +130,7 @@ async def get_recipes(
             except Exception as e_pg:
                 for r_item in recipes_data: r_item["aggregated_details_error"] = f"Error fetching details: {str(e_pg)}"
             
+        # on convertit les ObjectId en str pour la sérialisation JSON
         for recipe in recipes_data:
             if "_id" in recipe and isinstance(recipe["_id"], ObjectId):
                 recipe["_id"] = str(recipe["_id"])
@@ -230,6 +234,7 @@ async def get_recipe_by_id(
         if "_id" in recipe_data and isinstance(recipe_data["_id"], ObjectId):
             recipe_data["_id"] = str(recipe_data["_id"])
         try:
+            # on enrichit les détails des ingrédients de la recettes avec les infos aggrégées
             enriched_list = get_enriched_recipes_details(
                 db_pg, [recipe_data.copy()], min_linked_similarity_score_for_details, min_initial_name_similarity_for_details
             )
@@ -317,18 +322,20 @@ async def get_products(
     print("appel requete")
     try:
         mongo_client = get_mongodb_connection()
+        # on normaliser et vectorise le nom de l'ingrédient pour trouver l'ensemble des ingrédients qui s'en rapprochent
         normalized_search_name = normalize_name(name_search)
         search_vector = vectorize_name(normalized_search_name)
-        
-        print("recherche ingredients")
+        logger.debug("recherche ingredients")
 
+        # on récupère les IDs des vecteurs de produits qui correspondent au nom de l'ingrédient
         initial_pv_ids = _get_product_vector_ids_by_name(db_pg, normalized_search_name, min_name_similarity)
 
         if not initial_pv_ids:
             return {"success": True, "message": "No initial product found for the given name.", "data": {"products": [], "recipes": []}, "count": 0, "recipe_count": 0}
 
-        print("recherche liens")
+        logger.debug("recherche liens")
 
+        # on récupère les IDs des produits liés à ces vecteurs, en fonction du score de similarité
         best_links_map = _get_linked_product_vector_ids(db_pg, initial_pv_ids, min_similarity_score)
 
         all_unique_pv_ids_to_fetch = set(initial_pv_ids)
@@ -336,8 +343,9 @@ async def get_products(
             for linked_source_data in best_links_map[initial_id].values():
                 all_unique_pv_ids_to_fetch.add(linked_source_data['id'])
                 
-        print("recherche details")
+        logger.debug("recherche details")
         
+        # on récupère les détails des produits à partir des IDs uniques
         final_products_list = _get_processed_products(
             db_pg,
             all_unique_pv_ids_to_fetch,
@@ -345,15 +353,15 @@ async def get_products(
             search_vector
         )
 
+        # on récupère les recettes associées à l'ingrédient
         associated_recipes = []
-        print("recherche recettes")
+        logger.debug("recherche recettes")
         if mongo_client:
             associated_recipes = _fetch_recipes_for_ingredient(mongo_client, normalized_search_name, limit=10, skip=0)
-        
-        print("aggregation")
-        global_details_aggregator = _aggregate_product_details(final_products_list)
 
-        total_product_count = len(final_products_list)
+        logger.debug("aggregation")
+        # on agrège les détails des produits
+        global_details_aggregator = _aggregate_product_details(final_products_list)
 
         products_for_response = []
         for product_detail in final_products_list[skip : skip + limit]:

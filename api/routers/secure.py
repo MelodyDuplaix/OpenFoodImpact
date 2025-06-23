@@ -69,7 +69,7 @@ async def create_recipe(
     mongo_client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
     db_mongo = mongo_client[os.getenv("MONGODB_DB", "OpenFoodImpact")]
     collection = db_mongo["recipes"]
-    # Vérification existence recette
+    # on vérifie si la recette existe déjà
     existing = collection.find_one({"title": recipe_data.title})
     if existing:
         mongo_id = str(existing.get("_id"))
@@ -81,17 +81,21 @@ async def create_recipe(
     parsed_ingredients_details = []
     ingredients = recipe_data.recipeIngredient or []
     for ing in ingredients:
+        # pour chaque ingrédients, on le parse, le normalise, et on l'ajoute au tableau
         parsed = parse_ingredient_details_fr_en(ing)
         norm_name = normalize_name(parsed.get("parsed_name") or ing)
         parsed["normalized_name_for_matching"] = norm_name
         normalized_ingredients.append(norm_name)
         parsed_ingredients_details.append(parsed)
+        # on vérifie si le nom normalisé existe déjà dans ProductVector
         existing_pv = db_sqla.query(ProductVector).filter(ProductVector.name == norm_name).first()
         if not existing_pv:
+            # sinon, on le crée
             new_pv = ProductVector(name=norm_name, name_vector=None, source="manual")
             db_sqla.add(new_pv)
             db_sqla.commit()
             db_sqla.refresh(new_pv)
+            # on recalcul les liens entre les sources pour cet ingrédient
             update_ingredient_links(
                 new_pv.id, # type: ignore
                 norm_name,

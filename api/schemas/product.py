@@ -75,12 +75,19 @@ class GreenpeaceProductData(BaseModel):
     months: List[str] = Field(..., example=["janvier", "février"], description="Liste des mois où le produit est de saison") # type: ignore
 
 class ProductCreate(BaseModel):
+    """
+    Modèle de création d'un produit.
+    Le champ 'name' est obligatoire et représente le nom commun du produit.
+    """
     name: str = Field(..., example="Pomme de terre", description="Nom commun du produit.") # type: ignore
     agribalyse_payload: Optional[AgribalyseProductData] = None
     openfoodfacts_payload: Optional[OpenFoodFactsProductData] = None
     greenpeace_payload: Optional[GreenpeaceProductData] = None
 
 class ProductCreationResponse(BaseModel):
+    """
+    Modèle de réponse à la création d'un produit.
+    """
     product_vector_id: int
     name: str
     normalized_name: str
