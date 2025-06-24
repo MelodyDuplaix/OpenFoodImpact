@@ -1,5 +1,7 @@
-from processing.utils import get_db_connection
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from processing.utils import get_db_connection
 import pandas as pd
 import concurrent.futures
 import random
@@ -69,15 +71,64 @@ def analyse_product_vector_overlap():
     cur = conn.cursor()
     print("Création de l'index (si besoin)...")
     cur.execute(SQL_INDEX)
-    print("Analyse des produits strictement identiques entre sources :")
-    # on récupère les correspondances exactes entre sources
-    df_exact = pd.read_sql(sql=SQL_ANALYSE, conn) # type: ignore
+    # Sélection d'un échantillon de 2000 noms distincts pour toutes les analyses
+    cur.execute("SELECT DISTINCT name FROM product_vector LIMIT 2000;")
+    sampled_names = set(row[0] for row in cur.fetchall())
+
+    print("Analyse des produits strictement identiques entre sources (échantillon 2000 noms) :")
+    # on récupère les correspondances exactes entre sources sur l'échantillon
+    SQL_ANALYSE_SAMPLE = f"""
+    WITH names_by_source AS (
+      SELECT name, source
+      FROM product_vector
+      WHERE name IN %s
+      GROUP BY name, source
+    ),
+    pairs AS (
+      SELECT s1.source AS source1, s2.source AS source2
+      FROM (SELECT DISTINCT source FROM product_vector) s1
+      JOIN (SELECT DISTINCT source FROM product_vector) s2
+        ON s1.source < s2.source
+    ),
+    common_names AS (
+      SELECT
+        p.source1,
+        p.source2,
+        COUNT(*) AS common_count
+      FROM pairs p
+      JOIN names_by_source n1 ON n1.source = p.source1
+      JOIN names_by_source n2 ON n2.source = p.source2 AND n1.name = n2.name
+      GROUP BY p.source1, p.source2
+    ),
+    total_names AS (
+      SELECT
+        source AS source1,
+        COUNT(DISTINCT name) AS total1
+      FROM product_vector
+      WHERE name IN %s
+      GROUP BY source
+    )
+    SELECT
+      c.source1,
+      c.source2,
+      c.common_count,
+      t1.total1 AS total_source1,
+      t2.total1 AS total_source2,
+      ROUND(100.0 * c.common_count / t1.total1, 2) AS percent_source1,
+      ROUND(100.0 * c.common_count / t2.total1, 2) AS percent_source2
+    FROM common_names c
+    JOIN total_names t1 ON c.source1 = t1.source1
+    JOIN total_names t2 ON c.source2 = t2.source1
+    ORDER BY percent_source1 DESC, percent_source2 DESC;
+    """
+    df_exact = pd.read_sql(con=conn, sql=SQL_ANALYSE_SAMPLE, params=(tuple(sampled_names), tuple(sampled_names))) # type: ignore
     print(df_exact.to_string(index=False))
-    print("\nAnalyse des produits similaires (fuzzy + vector) entre sources:")
+
+    print("\nAnalyse des produits similaires (fuzzy + vector) entre sources (échantillon 2000 noms):")
     cur.execute("SELECT DISTINCT source FROM product_vector;")
     sources = [row[0] for row in cur.fetchall()]
     seuil_fuzzy = 0.65
-    sample_size = 1000
+    sample_size = 2000
     results = []
 
     def count_similar_names_both_ways(s1, s2):
@@ -103,7 +154,7 @@ def analyse_product_vector_overlap():
                 'percent_source2': 0.0
             }
         local_cur = local_conn.cursor()
-        local_cur.execute("SELECT name FROM product_vector WHERE source = %s;", (s1,))
+        local_cur.execute("SELECT name FROM product_vector WHERE source = %s AND name IN %s;", (s1, tuple(sampled_names)))
         names1 = [row[0] for row in local_cur.fetchall()]
         # on prend un échantillon si trop de noms
         if len(names1) > sample_size:
@@ -126,7 +177,7 @@ def analyse_product_vector_overlap():
                 count_similar_1 += 1
         total1 = len(names1)
         percent1 = 100 * count_similar_1 / total1 if total1 else 0
-        local_cur.execute("SELECT name FROM product_vector WHERE source = %s;", (s2,))
+        local_cur.execute("SELECT name FROM product_vector WHERE source = %s AND name IN %s;", (s2, tuple(sampled_names)))
         names2 = [row[0] for row in local_cur.fetchall()]
         # on prend un échantillon si trop de noms
         if len(names2) > sample_size:
@@ -175,7 +226,7 @@ def analyse_product_vector_overlap():
     seuils = [0.5, 0.6, 0.7, 0.8]
     sample_pairs = []
     for seuil in seuils:
-        print(f"\nExtraction d'un échantillon de paires matchées pour seuil global_score > {seuil}...")
+        print(f"\nExtraction d'un échantillon de paires matchées pour seuil global_score > {seuil} (échantillon 2000 noms)...")
         for s1 in sources:
             for s2 in sources:
                 if s1 == s2:
@@ -184,7 +235,7 @@ def analyse_product_vector_overlap():
                 if cur is None:
                     continue
                 cur = cur.cursor()
-                cur.execute("SELECT name FROM product_vector WHERE source = %s;", (s1,))
+                cur.execute("SELECT name FROM product_vector WHERE source = %s AND name IN %s;", (s1, tuple(sampled_names)))
                 names1 = [row[0] for row in cur.fetchall()]
                 # on prend un échantillon de 50 noms pour chaque source
                 if len(names1) > 50:
@@ -206,15 +257,15 @@ def analyse_product_vector_overlap():
                         LIMIT 1;
                     """, (name, s1, s2))
                     match = cur.fetchone()
-                    if match and match[3] > seuil:
+                    if match and match[2] > seuil:
                         sample_pairs.append({
                             'source1': s1,
                             'name1': name,
                             'source2': match[1],
                             'name2': match[0],
-                            'global_score': round(match[3], 3),
-                            'vector_similarity': round(match[4], 3),
-                            'fuzzy_similarity': round(match[5], 3),
+                            'global_score': round(match[2], 3),
+                            'vector_similarity': round(match[3], 3),
+                            'fuzzy_similarity': round(match[4], 3),
                             'seuil': seuil
                         })
                 cur.close()
