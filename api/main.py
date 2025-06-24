@@ -1,88 +1,17 @@
-import re
 import time
-from typing import Callable
-from fastapi import FastAPI, Depends, Request, HTTPException
-from routers import secure, public
-from auth import get_current_user
-from fastapi import status
-from fastapi.responses import JSONResponse
-from fastapi import APIRouter
 import os
 import sys
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from fastapi import Body
-from pymongo import MongoClient
-
 import logging
-logger = logging.getLogger(__name__)
-level = getattr(logging, "INFO", None)
-logging.basicConfig(level=level, format='%(asctime)s %(levelname)s %(module)s %(message)s')
+from typing import Callable
+from fastapi import FastAPI, Depends, Request
+from routers import secure, public
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from api.db import get_user_by_username, create_user, verify_password, create_access_token
-from api.services.db_session import get_db, init_db
-from api.schemas.recipe import RecipeCreate
-from processing.utils import normalize_name, parse_ingredient_details_fr_en
-from api.sql_models import ProductVector
-from api.services.product_creation import update_ingredient_links
-from processing.utils import get_db_connection as get_psycopg2_connection
-from processing.ingredient_similarity import find_similar_ingredients
-from processing.build_ingredient_links import create_ingredient_link_table
+from api.auth import user_router, get_current_user
 
-user_router = APIRouter(prefix="/api/user", tags=["User"])
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(module)s %(message)s')
 
-
-class UserAuthRequest(BaseModel):
-    username: str
-    password: str
-
-@user_router.post("/register", response_model=dict)
-async def register(body: UserAuthRequest, db: Session = Depends(get_db)):
-    """
-    Register a new user.  
-
-    Args:  
-        body (UserAuthRequest): Registration data (username, password).  
-    Returns:  
-        dict: User info and access token if successful.  
-    Raises:  
-        JSONResponse: On error (missing fields, user exists, etc.).  
-    """
-    username = body.username
-    password = body.password
-    if not username or not password:
-        return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": "Username and password required"})
-    db_user = get_user_by_username(db, username)
-    if db_user:
-        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": "Username already exists"})
-    new_user = create_user(db, username, password)
-    if new_user:
-        token = create_access_token({"sub": new_user.username, "user_id": new_user.id, "user_level": new_user.user_level})
-        return {"user_id": new_user.id, "username": new_user.username, "access_token": token, "token_type": "bearer", "user_level": new_user.user_level, "message": "Registration successful"}
-    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"detail": "Registration failed"})
-
-@user_router.post("/login", response_model=dict)
-async def login(body: UserAuthRequest, db: Session = Depends(get_db)):
-    """
-    Log in an existing user.  
-
-    Args:  
-        body (UserAuthRequest): Login data (username, password).  
-    Returns:  
-        dict: User info and access token if successful.  
-    Raises:  
-        JSONResponse: On authentication failure.  
-    """
-    username = body.username
-    password = body.password
-    if not username or not password:
-        return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": "Username and password required"})
-    user = get_user_by_username(db, username)
-    if user and verify_password(password, user.password):
-        token = create_access_token({"sub": user.username, "user_id": user.id, "user_level": user.user_level})
-        return {"user_id": user.id, "username": user.username, "access_token": token, "token_type": "bearer", "user_level": user.user_level, "message": "Login successful"}
-    return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": "Invalid credentials"})
 
 app = FastAPI(
     title="DataFoodImpact API",

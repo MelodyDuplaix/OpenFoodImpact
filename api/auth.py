@@ -1,13 +1,20 @@
-from fastapi import Security, HTTPException, status
+from fastapi import Security, HTTPException, status, Depends, APIRouter
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-import os
+from pydantic import BaseModel
 import sys
+import os
+import logging
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from api.db import decode_access_token, get_user_by_username
+from api.db import get_user_by_username, create_user, verify_password, create_access_token, decode_access_token
 from api.services.db_session import get_db
 
 bearer_scheme = HTTPBearer()
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(module)s %(message)s')
 
 def get_current_user(db: Session = Security(get_db), credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)):
     """
@@ -35,3 +42,62 @@ def get_current_user(db: Session = Security(get_db), credentials: HTTPAuthorizat
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid authentication credentials"
     )
+
+
+
+user_router = APIRouter(prefix="/api/user", tags=["User"])
+
+
+class UserAuthRequest(BaseModel):
+    username: str
+    password: str
+
+@user_router.post("/register", response_model=dict)
+async def register(body: UserAuthRequest, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """
+    Register a new user.  
+
+    Args:  
+        body (UserAuthRequest): Registration data (username, password).  
+        current_user (dict): Authenticated user info (must be admin).
+    Returns:  
+        dict: User info and access token if successful.  
+    Raises:  
+        JSONResponse: On error (missing fields, user exists, etc.).  
+    """
+    if current_user.get("user_level") != "admin":
+        return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": "Only admin users can create new accounts."})
+    username = body.username
+    password = body.password
+    if not username or not password:
+        return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": "Username and password required"})
+    db_user = get_user_by_username(db, username)
+    if db_user:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": "Username already exists"})
+    new_user = create_user(db, username, password)
+    if new_user:
+        token = create_access_token({"sub": new_user.username, "user_id": new_user.id, "user_level": new_user.user_level})
+        return {"user_id": new_user.id, "username": new_user.username, "access_token": token, "token_type": "bearer", "user_level": new_user.user_level, "message": "Registration successful"}
+    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"detail": "Registration failed"})
+
+@user_router.post("/login", response_model=dict)
+async def login(body: UserAuthRequest, db: Session = Depends(get_db)):
+    """
+    Log in an existing user.  
+
+    Args:  
+        body (UserAuthRequest): Login data (username, password).  
+    Returns:  
+        dict: User info and access token if successful.  
+    Raises:  
+        JSONResponse: On authentication failure.  
+    """
+    username = body.username
+    password = body.password
+    if not username or not password:
+        return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": "Username and password required"})
+    user = get_user_by_username(db, username)
+    if user and verify_password(password, user.password):
+        token = create_access_token({"sub": user.username, "user_id": user.id, "user_level": user.user_level})
+        return {"user_id": user.id, "username": user.username, "access_token": token, "token_type": "bearer", "user_level": user.user_level, "message": "Login successful"}
+    return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": "Invalid credentials"})
