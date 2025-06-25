@@ -5,7 +5,8 @@ import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from processing.utils import get_db_connection, safe_execute, normalize_name, vectorize_name
 
-openfoodfacts_url = "data/fr.openfoodfacts.org.products.csv"
+# openfoodfacts_url = "data/fr.openfoodfacts.org.products.csv" # si le fichier est local
+openfoodfacts_url = "https://fr.openfoodfacts.org/data/fr.openfoodfacts.org.products.csv"  # si on utilise le fichier est distant
 # colonnes différentes entre celles présentes dans le CSV et celles utilisées dans la base de données
 openfoodfact_csv_columns = [
     "code", "product_name", "brands", "categories", "labels_tags", "packaging_tags", "countries_tags", "image_url",
