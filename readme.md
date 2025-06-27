@@ -138,8 +138,9 @@ projet_certif_cooking/
   - Analyse de similarité (vectorielle et textuelle)
   - Recommandations
   - Ajout/modification (routes sécurisées)
+  - Suppression de son propre compte (route sécurisée)
 - Authentification : JWT (création, login, accès routes privées)
-- Sécurité : hashing mots de passe (bcrypt, passlib), validation stricte des entrées
+- Sécurité : hashing mots de passe (bcrypt, passlib), validation stricte des entrées, suppression de compte par l'utilisateur connecté
 - Documentation interactive : Swagger/OpenAPI (auto-générée)
 - Dépendances : FastAPI, SQLAlchemy, passlib, bcrypt, pydantic
 - Logique :

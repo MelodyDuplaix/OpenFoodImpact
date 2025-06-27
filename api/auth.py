@@ -101,3 +101,26 @@ async def login(body: UserAuthRequest, db: Session = Depends(get_db)):
         token = create_access_token({"sub": user.username, "user_id": user.id, "user_level": user.user_level})
         return {"user_id": user.id, "username": user.username, "access_token": token, "token_type": "bearer", "user_level": user.user_level, "message": "Login successful"}
     return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"detail": "Invalid credentials"})
+
+@user_router.delete("/delete_account", response_model=dict)
+async def delete_account(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """
+    Delete the currently authenticated user's account.
+
+    Args:
+        current_user (dict): Authenticated user info.
+    Returns:
+        dict: Confirmation message.
+    Raises:
+        JSONResponse: On error (user not found or deletion failed).
+    """
+    user = get_user_by_username(db, current_user["username"])
+    if not user:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": "User not found"})
+    try:
+        db.delete(user)
+        db.commit()
+        return {"message": "Account deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting user: {e}")
+        return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"detail": "Account deletion failed"})
