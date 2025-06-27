@@ -4,6 +4,7 @@ import sys
 import logging
 from typing import Callable
 from fastapi import FastAPI, Depends, Request
+from fastapi.responses import RedirectResponse
 from routers import secure, public
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,6 +43,10 @@ async def add_timer_middleware(request: Request, call_next: Callable):
     elapsed_time = end_time - start_time
     response.headers['X-Execution-Time'] = str(round(elapsed_time, 2))
     return response
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
 
 app.include_router(
     public.router,
